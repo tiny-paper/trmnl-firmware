@@ -121,6 +121,12 @@
 
 // #define FAKE_BATTERY_VOLTAGE // Uncomment to report 4.2V instead of reading ADC
 
+#if defined(BOARD_XTEINK_X4PRO)
+#define BUTTON_PIN_MODE INPUT_PULLUP // the buttons have no external pull-up resistors
+#else
+#define BUTTON_PIN_MODE INPUT
+#endif
+
 #define BUTTON_HOLD_TIME                   5000
 #define BUTTON_MEDIUM_HOLD_TIME            1000
 #define BUTTON_SOFT_RESET_TIME             15000
@@ -133,7 +139,7 @@
 
 // Battery measurement types
 // BATT_NONE = use fake voltage
-enum { BATT_NONE = 0, BATT_ADC, BATT_BQ27220, BATT_BQ27427, BATT_AXP2101 };
+enum { BATT_NONE = 0, BATT_ADC, BATT_BQ27220, BATT_BQ27427, BATT_AXP2101, BATT_CW2017 };
 
 #ifdef PARALLEL_EPD
 // TRMNL Device structure (slightly different for parallel eink panels)

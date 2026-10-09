@@ -11,6 +11,7 @@
 #include <refresh_interval.h>
 #include <sleep_session.h>
 #include <trmnl_log.h>
+#include <xteink_x4pro.h>
 
 #include "driver/gpio.h"
 
@@ -100,6 +101,9 @@ void goToSleep(void) {
   gpio_deep_sleep_hold_en(); // Needed to keep the battery power enabled during RTC sleep
 #endif
 #endif
+#ifdef BOARD_XTEINK_X4PRO
+  x4pro_sleep_prep(); // keep the battery power on and the unused rails off
+#endif
   esp_deep_sleep_start();
 }
 
@@ -128,6 +132,9 @@ void goToSleepButtonOnly(void) {
 #ifdef BOARD_XTEINK_X4
   gpio_hold_en(GPIO_NUM_13);
   gpio_deep_sleep_hold_en();
+#endif
+#ifdef BOARD_XTEINK_X4PRO
+  x4pro_sleep_prep();
 #endif
   esp_deep_sleep_start();
 }

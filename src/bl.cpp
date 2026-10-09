@@ -38,6 +38,7 @@
 #include <api_response_parsing.h>
 #include "logging_parcers.h"
 #include <SPIFFS.h>
+#include <xteink_x4pro.h>
 #include "http_client.h"
 #include <StreamString.h>
 #include <api-client/display.h>
@@ -136,6 +137,9 @@ void bl_init(void)
   digitalWrite(45, 1);
   digitalWrite(46, 0);
   digitalWrite(46, 1); // Hold the battery power enabled for after the user releases the power button
+#endif
+#ifdef BOARD_XTEINK_X4PRO
+  x4pro_power_init(); // Hold the battery power enabled for after the user releases the power button
 #endif
 #ifdef BOARD_TRMNL_X
   uint32_t init_time = esp_cpu_get_cycle_count() / esp_rom_get_cpu_ticks_per_us();

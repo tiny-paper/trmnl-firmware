@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <battery.h>
 #include <config.h>
+#include <xteink_x4pro.h>
 #if ESP_ARDUINO_VERSION_MAJOR < 3 // IDF 4.4; IDF 5's new ADC driver must not be mixed with the legacy one
 #include <driver/adc.h>
 #endif
@@ -69,6 +70,10 @@ float ADCBattery::readVoltage(TRMNL_DEVICE *pDevice) {
     sensorValue = __builtin_bswap16(sensorValue); // this chip is big-endian
     sensorValue &= 0x3fff; // top 2 bits are config info
     return (float)sensorValue / 1000.0f;
+#ifdef BOARD_XTEINK_X4PRO
+  } else if (pDevice->batt_type == BATT_CW2017) {
+    return x4pro_read_battery(pDevice->sensor_sda, pDevice->sensor_scl);
+#endif
   } else { // BQ2742x
     Wire.begin(pDevice->sensor_sda, pDevice->sensor_scl);
     int16_t sensorValue = readReg16(0x55, 4); // current battery voltage in millivolts (registers 4+5)

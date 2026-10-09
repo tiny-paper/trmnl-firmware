@@ -10,7 +10,7 @@ extern TRMNL_DEVICE *pDevice;
 #include "trmnl_log.h"
 
 static unsigned long wait_for_button_release(unsigned long start_time) {
-  pinMode(pDevice->interrupt_pin, INPUT);
+  pinMode(pDevice->interrupt_pin, BUTTON_PIN_MODE);
   while (digitalRead(pDevice->interrupt_pin) == LOW && millis() - start_time < BUTTON_SOFT_RESET_TIME) {
     delay(10);
   }
@@ -59,7 +59,7 @@ static ButtonPressResult wait_for_second_press(unsigned long start_time) {
 static ButtonPressResult classify_button_presses() {
   auto time_start = millis();
   Log_info("Button time=%lu: start", time_start);
-  pinMode(pDevice->interrupt_pin, INPUT);
+  pinMode(pDevice->interrupt_pin, BUTTON_PIN_MODE);
   if (digitalRead(pDevice->interrupt_pin) == HIGH) {
     if (time_start < 2000) {
       Log_info("Button: already released at start (GPIO wakeup), waiting for second press");

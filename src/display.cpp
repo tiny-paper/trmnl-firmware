@@ -11,6 +11,7 @@
 #include "messages.h"
 #include "config.h"
 #include "battery.h"
+#include <xteink_x4pro.h>
 #define MAX_BIT_DEPTH 8
 TRMNL_DEVICE *pDevice = NULL;
 #ifdef PARALLEL_EPD
@@ -51,6 +52,7 @@ const TRMNL_DEVICE device_list[] =
   "og_gen2_4clr",  6,    1,     4,   2,    5,   0,    11,   12,   3,     0xff, 0xff,    BATT_BQ27427,  EPD_75_4CLR, // fake battery == 0xff
   "xteink_x4",     8,    10,    21,  5,    4,   6,    0xff, 0xff, 3,     0xff, 0xff,    BATT_ADC,  EPD_426,
   "xteink_x3",     8,    10,    21,  5,    4,   6,    20,   0,    3,     0xff, 0xff,    BATT_BQ27220,  EPD_368,
+  "xteink_x4pro",  12,   11,    13,  14,   18,  6,    39,   38,   3,     0xff, 0xff,    BATT_CW2017,  EPD_426, // panel set depends on the EPD controller, see hw_config_init()
   "waveshare",     13,   14,    15,  26,   27,  25,   0xff, 0xff, 33,    0xff, 0xff,    BATT_ADC,  EPD_75,
   "waveshare_397", 11,   12,    10,  46,   9,   3,    41,   42,   0,     0xff, 0xff,    BATT_AXP2101,  EPD_397,
   "seeed_sticky",  13,   14,    15,  17,   16,  18,   1,    0,    4,     0xff, 0xff,    BATT_BQ27220,  EPD_397,  
@@ -245,6 +247,29 @@ void hw_config_init(void)
     if (device_list[i].device_name) {
         Log_info("Found device model at index %d\n", i);
         pDevice = (TRMNL_DEVICE *)&device_list[i];
+#ifdef BOARD_XTEINK_X4PRO
+        // The X4 Pro shipped with 3 different EPD controllers; find out which one this unit has
+        // and use a writable copy of the device entry to select the matching panel set
+        static TRMNL_DEVICE x4pro_device;
+        x4pro_device = device_list[i];
+#ifdef X4PRO_PANEL_SET // force a panel set from platformio.ini, skipping the detection
+        x4pro_device.panel_set = X4PRO_PANEL_SET;
+#else
+        int iCtrl = x4pro_detect_controller(x4pro_device.epd_sck_pin, x4pro_device.epd_mosi_pin,
+                        x4pro_device.epd_cs_pin, x4pro_device.epd_rst_pin, x4pro_device.epd_dc_pin,
+                        x4pro_device.epd_busy_pin);
+        if (iCtrl == X4PRO_CTRL_SSD1677) {
+            x4pro_device.panel_set = EPD_426; // same controller setup as the Xteink X4
+        } else {
+            // bb_epaper has no panel entry for the UC8179/UC8279 version of this glass yet (it addresses
+            // 600 gates of which 480 are visible). The 7.5" UC8179 set is the closest one; expect the
+            // image to be misplaced until a matching entry exists.
+            Log_error("X4 Pro: %s EPD has no matching panel type yet, trying the 7.5\" one", x4pro_controller_name(iCtrl));
+            x4pro_device.panel_set = EPD_75;
+        }
+#endif // X4PRO_PANEL_SET
+        pDevice = &x4pro_device;
+#endif // BOARD_XTEINK_X4PRO
     } else {
         Log_info("Device name (%s) not found in supported list!", DEVICE_MODEL);
     }
