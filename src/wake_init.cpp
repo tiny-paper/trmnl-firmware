@@ -21,6 +21,7 @@
 
 #ifdef BOARD_TRMNL_X
 #include <Wire.h>
+#include <apps.h>
 
 #include "touchbar_actions.h"
 #else
@@ -145,6 +146,7 @@ void startBoardHardware(const WakeContext &wake, uint32_t init_time) {
   Wire.setClock(100000);
 
   touchbar_start(wake.reason, wake.gpio);
+  apps_resume_if_due(); // an app running before a restart; does not return then
 
   Log_info("init time: %ld us", init_time);
 

@@ -30,3 +30,4 @@ managed_components/
 test/integration/test_config.h
 dependencies.lock
 apps/build/
+.venv/
