@@ -3,6 +3,7 @@
 
 #include "evlog.h"
 #include "evlog_crash.h"
+#include "serial_out_hw.h"
 
 #include <Arduino.h>
 #include <app_api.h>
@@ -186,7 +187,7 @@ bool evlog_serial_command(const char *line) {
       xSemaphoreGive(mu);
       write_out(true);
     }
-    Serial.printf("TAPP EVLOG CLEARED\n");
+    serial_out_printf("TAPP EVLOG CLEARED\n");
     return true;
   }
   uint8_t *buf = alloc(EVLOG_BYTES + EVLOG_DATA_BYTES);
@@ -195,14 +196,14 @@ bool evlog_serial_command(const char *line) {
     char l[EVLOG_LINE_MAX];
     int n = evlog_ring_count(&c);
     for (int i = 0; i < n; i++) {
-      if (evlog_ring_line(&c, i, l, sizeof(l)) >= 0) Serial.printf("TAPP EVLOG %s\n", l);
+      // paced, no flush(): HWCDC's flush() and a full ring drop bytes (serial_out.h); a host gone ends the answer
+      if (evlog_ring_line(&c, i, l, sizeof(l)) >= 0 && !serial_out_printf("TAPP EVLOG %s\n", l)) break;
     }
   } else {
-    Serial.printf("TAPP EVLOG (no log: %s)\n", mu ? "out of memory" : "off");
+    serial_out_printf("TAPP EVLOG (no log: %s)\n", mu ? "out of memory" : "off");
   }
   free(buf);
-  Serial.printf("TAPP EVLOG END\n");
-  Serial.flush();
+  serial_out_printf("TAPP EVLOG END\n");
   return true;
 }
 
