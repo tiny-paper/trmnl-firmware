@@ -359,6 +359,52 @@ static bool draw_qr(const char *text, int x, int y) {
   return true;
 }
 
+// The fonts do not scale, so a string is drawn small in the top left corner (the scratch area), measured by its
+// black pixels, and blown up pixel by pixel to (x, y). The scratch area is wiped again. The screen keeps rotation 0
+// (nothing here sets another), so the 1 bit buffer is read as bbSetPixel2Clr writes it: MSB first, white = 1.
+#define SCRATCH_W 1000
+#define SCRATCH_H 64
+static bool scratch_black(int x, int y) {
+  const int pitch = (bbep.width() + 7) >> 3;
+  return !(bbep.currentBuffer()[(x >> 3) + y * pitch] & (0x80 >> (x & 7)));
+}
+
+// Draws `text` `scale` times larger, its left edge at x (or centered on x when `center`), its top at y; returns the
+// height used. A scale that would run past the panel is lowered.
+static int draw_big(const char *text, int x, int y, int scale, bool center, const void *font) {
+  bbep.setFont(font);
+  bbep.fillRect(0, 0, SCRATCH_W, SCRATCH_H, BBEP_WHITE);
+  bbep.drawString(text, 0, SCRATCH_H - 16);
+  int x0 = SCRATCH_W, x1 = -1, y0 = SCRATCH_H, y1 = -1;
+  for (int row = 0; row < SCRATCH_H; row++) {
+    for (int col = 0; col < SCRATCH_W; col++) {
+      if (!scratch_black(col, row)) continue;
+      if (col < x0) x0 = col;
+      if (col > x1) x1 = col;
+      if (row < y0) y0 = row;
+      if (row > y1) y1 = row;
+    }
+  }
+  if (x1 < 0) return 0;
+  int w = x1 - x0 + 1, h = y1 - y0 + 1;
+  const int margin = bbep.width() / 24;
+  while (scale > 1 && w * scale > bbep.width() - 2 * margin) scale--;
+  if (center) x -= w * scale / 2;
+  if (x < margin) x = margin;
+  // copy the glyph pixels to a list of runs first: the destination may overlap the scratch area
+  for (int row = h - 1; row >= 0; row--) {
+    int col = 0;
+    while (col < w) {
+      if (!scratch_black(x0 + col, y0 + row)) { col++; continue; }
+      int run = col;
+      while (col < w && scratch_black(x0 + col, y0 + row)) col++;
+      bbep.fillRect(x + run * scale, y + row * scale, (col - run) * scale, scale, BBEP_BLACK);
+    }
+  }
+  bbep.fillRect(0, 0, SCRATCH_W, SCRATCH_H, BBEP_WHITE);
+  return h * scale;
+}
+
 void apps_install_session(void) {
   int rc = webshare_start_install();
   app_webshare_status_t st;
@@ -369,29 +415,32 @@ void apps_install_session(void) {
     app_error_and_sleep("Install via Wi-Fi", what);
   }
   Log_info("Apps: install page on, %s", st.url);
-  const int x = bbep.width() / 12;
-  const int y = bbep.height() / 6;
+  const int W = bbep.width(), margin = W / 24, mid = W / 2;
   bbep.setMode(BB_MODE_1BPP);
   bbep.fillScreen(BBEP_WHITE);
   bbep.setTextColor(BBEP_BLACK, BBEP_WHITE);
-  bbep.setFont(Roboto_Black_24);
-  bbep.drawString("Install apps via Wi-Fi", x, y);
-  char line[80];
-  bbep.setFont(Inter_18);
-  if (st.mode == APP_WEBSHARE_HOME) {
-    snprintf(line, sizeof(line), "Online at %s", st.url);
-    bbep.drawString(line, x, y + 110);
+  // Everything below is drawn from y = 70 on (below the scratch area, whose rows are still read while drawing): the scratch area of draw_big is the top left corner
+  draw_big("Install apps via Wi-Fi", mid, 70, 2, true, Roboto_Black_24);
+  char line[96];
+  int y = 180;
+  if (st.mode != APP_WEBSHARE_HOME) {
+    snprintf(line, sizeof(line), "Join the network \"%s\", then open", st.network);
+    y += draw_big(line, mid, y, 2, true, Inter_18) + 24;
   } else {
-    snprintf(line, sizeof(line), "No home Wi-Fi: join the network \"%s\"", st.network);
-    bbep.drawString(line, x, y + 110);
-    snprintf(line, sizeof(line), "then open %s", st.url);
-    bbep.drawString(line, x, y + 180);
+    y += draw_big("Open on the same Wi-Fi", mid, y, 2, true, Inter_18) + 24;
   }
-  snprintf(line, sizeof(line), "Code: %s", st.code);
-  bbep.drawString(line, x, y + 290);
-  bbep.drawString("Scan the code on the right, or type the code on the page.", x, y + 380);
-  bbep.drawString("Long press to stop.", x, y + 480);
-  draw_qr(st.login_url, bbep.width() / 2 + x, y);
+  y += draw_big(st.url, mid, y, 3, true, Roboto_Black_24) + 40;
+  y += draw_big("Code", mid, y, 2, true, Inter_18) + 25;
+  y += draw_big(st.code, mid, y, 8, true, Roboto_Black_24) + 50;
+  // the QR at least as large as before (12 px modules), left; the hints right of it
+  int qr_top = y;
+  draw_qr(st.login_url, margin, qr_top);
+  int tx = margin + 700;
+  int ty = qr_top + 60;
+  ty += draw_big("Scan the code", tx, ty, 2, false, Inter_18) + 20;
+  ty += draw_big("or type the number", tx, ty, 2, false, Inter_18) + 20;
+  ty += draw_big("on the page.", tx, ty, 2, false, Inter_18) + 60;
+  draw_big("Long press to stop.", tx, ty, 2, false, Inter_18);
   bbep.fullUpdate(CLEAR_FAST, false);
 
   app_sleep_gate_screen("Install via Wi-Fi");

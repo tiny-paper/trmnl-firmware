@@ -21,6 +21,37 @@ def test_install_via_wifi_ends_on_a_long_press(device, elfs):
     assert count_logs(sim, CRASHED) == 0
 
 
+def test_install_via_wifi_shows_a_big_code_inside_the_panel(device, elfs):
+    """The code and address must read from a distance (owner 2026-10-30) and nothing may run past the panel edge"""
+    import io
+    import os
+    from PIL import Image
+    sim = device({"/apps/hello.elf": elfs["hello"]})
+    start = start_app(sim, ["hello"], "Install via Wi-Fi")
+    must_log(sim, r"Apps: install screen shown", start, 120)
+    idle(sim)
+    png = sim.api("GET", "/screenshot")
+    shots = os.environ.get("INSTALL_SHOTS")
+    if shots:
+        os.makedirs(shots, exist_ok=True)
+        with open(os.path.join(shots, "install-screen.png"), "wb") as f:
+            f.write(png)
+    img = Image.open(io.BytesIO(png)).convert("L")
+    w, h = img.size
+    ink = img.point(lambda v: 255 if v < 128 else 0)
+    box = ink.getbbox()
+    assert box, "blank screen"
+    margin = 16
+    assert box[0] >= margin and box[1] >= margin and box[2] <= w - margin and box[3] <= h - margin, box
+    # the widest ink-free-band rows: the code is the tallest text line, at least 3x the old 18 px text
+    rows = [any(ink.getpixel((x, y)) for x in range(0, w, 2)) for y in range(h)]
+    tallest = run = 0
+    for r in rows:
+        run = run + 1 if r else 0
+        tallest = max(tallest, run)
+    assert tallest >= 54, "tallest ink band %d px" % tallest
+
+
 def test_install_via_wifi_ends_on_a_long_press_at_once(device, elfs):
     sim = device({"/apps/hello.elf": elfs["hello"]})
     start = start_app(sim, ["hello"], "Install via Wi-Fi")

@@ -9,6 +9,7 @@ static const char WEBSHARE_PAGE[] = R"HTML(<!doctype html>
 <title>)HTML" WS_PAGE_TITLE R"HTML(</title>
 <style>
 body{font:16px/1.4 system-ui,sans-serif;max-width:42rem;margin:0 auto;padding:1rem;color:#111;background:#fff}
+#pin{font-size:2.4rem;letter-spacing:.3em;width:7em;padding:.2em}#go{font-size:1.6rem;padding:.3em .8em}
 h1{font-size:1.3rem}h2{font-size:1.05rem;margin:1.2rem 0 .3rem}
 button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 0}
 .row{display:flex;gap:.5rem;align-items:center;border-bottom:1px solid #ddd;padding:.3rem 0;flex-wrap:wrap}
