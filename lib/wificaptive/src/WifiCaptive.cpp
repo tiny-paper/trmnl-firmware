@@ -623,7 +623,7 @@ bool WifiCaptive::autoConnect() {
 
   if (_savedWifis[last_used_index].ssid != "") {
     Log_info("Trying to connect to last used %s...", _savedWifis[last_used_index].ssid.c_str());
-    WiFi.setSleep(0);
+    WiFi.setSleep(_joinModemSleep ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
     WiFi.setMinSecurity(WIFI_AUTH_OPEN);
     WiFi.mode(WIFI_STA);
 

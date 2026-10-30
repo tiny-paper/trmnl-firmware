@@ -57,7 +57,8 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | passkey not typed in 40 s (SMP gives up at 30 s) | the list again, "The passkey was not typed in time" |
 | not a keyboard (no HID service, no keyboard report, no boot input) | the list again, "That is not a keyboard" |
 | Apps menu | "Forget <name>" while a keyboard is bonded: both records cleared, the next app pairs again |
-| Wi-Fi at the same time | software coexistence (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE`, a build error without it); Wi-Fi modem sleep while BLE is on (an app's `net_up`, and when BLE starts with Wi-Fi up); scan window 30 ms of 50 ms |
+| Wi-Fi at the same time | software coexistence (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE`, a build error without it); Wi-Fi modem sleep while BLE is on (during and after an app's `net_up` join, and when BLE starts with Wi-Fi up); scan window 30 ms of 50 ms for listing and for connecting (NimBLE's default connect scan holds the radio the whole attempt); rules in `radio_share.h`, test `test_radio_share` |
+| `net_up` log | one line per call: `Net: up in N ms (already/joined, rssi, ble ...)` or `Net: failed: <reason> after N ms, wl_status, rssi, ble ..., internal RAM N free`; an HTTP request that fails to open logs `Net: <method> request failed to open: <error>` (apps report both as no network) |
 
 | Memory (TRMNL_X build) | Bluetooth off (before) | on |
 |---|---|---|
