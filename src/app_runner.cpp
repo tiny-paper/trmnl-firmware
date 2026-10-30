@@ -235,7 +235,7 @@ void apps_run(const char *path) {
   memset(&app_host, 0, sizeof(app_host));
   if (!app_path_name(path, app_host.name, sizeof(app_host.name))) {
     app_resume_ended(persistence);
-    app_error_and_sleep(path, "not an app path (/apps/<name>.elf)");
+    app_error_and_sleep(path, "not an app path (" APPS_DIR "/<name>.elf)");
   }
   snprintf(app_host.dir, sizeof(app_host.dir), APPS_DATA_DIR "/%s", app_host.name);
   Log_info("Apps: starting %s", path);

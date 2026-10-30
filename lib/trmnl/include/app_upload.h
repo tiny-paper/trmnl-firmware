@@ -15,11 +15,11 @@
 // The data goes to a temporary file, renamed over /apps/<name>.elf only when size and CRC-32 (zlib's) match.
 
 #define APP_UPLOAD_BLOCK      64 // bytes per ACK: one USB packet, well inside the serial RX buffer (256), which drops what does not fit
-#define APP_UPLOAD_MAX        (2u * 1024u * 1024u)
-#define APP_UPLOAD_MARGIN     (16u * 1024u) // left free on the file system
 #define APP_UPLOAD_IDLE_MS    5000 // no byte for this long: the upload is given up
+#include <apps_config.h> // APP_UPLOAD_MAX, APP_UPLOAD_MARGIN (left free on the file system), APPS_DIR
+
 #define APP_UPLOAD_LINE_MAX   96
-#define APP_UPLOAD_TMP        "/apps/.upload.tmp"
+#define APP_UPLOAD_TMP        APPS_DIR "/.upload.tmp"
 
 typedef enum {
   APP_UPLOAD_OK,

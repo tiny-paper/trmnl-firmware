@@ -7,9 +7,7 @@
 // temporary file and is renamed only when complete; a file that is not documents/ or settings/fonts/ is left alone.
 
 #define WS_TMP_NAME ".webshare.tmp" // in the target's folder; leading dot, so the writer never lists it
-#define WS_DOC_MAX (1u * 1024u * 1024u)
-#define WS_FONT_MAX (4u * 1024u * 1024u)
-#define WS_FREE_MARGIN (32u * 1024u) // left free on the file system after an upload
+#include <apps_config.h> // WS_DOC_MAX, WS_FONT_MAX, WS_FREE_MARGIN (left free after an upload)
 
 typedef enum {
   WS_OK,

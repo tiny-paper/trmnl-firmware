@@ -37,9 +37,9 @@ const char *usb_role_str(usb_role_t role);
 // removal, or when the app no longer wants keys. A restart starts in device mode (usb_port_init).
 
 #define USB_PORT_POLL_MS  100
-#define USB_PORT_CLEAR_MS 1000 // no input power this long before the boost may go on
-#define USB_PORT_PROBE_MS 3000 // host mode without a keyboard: back to device mode
-#define USB_PORT_RETRY_MS 10000 // then this long in device mode before the next probe
+// config/apps.json: USB_PORT_CLEAR_MS no input power this long before the boost may go on, USB_PORT_PROBE_MS host
+// mode without a keyboard: back to device mode, USB_PORT_RETRY_MS then this long in device mode before the next probe
+#include <apps_config.h>
 
 typedef enum { USB_POWER_NO, USB_POWER_YES, USB_POWER_UNKNOWN } usb_power_t;
 

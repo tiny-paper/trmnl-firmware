@@ -202,20 +202,19 @@ typedef struct {
 
 // ---- Wi-Fi page (API 2) ----
 
-// A page on the X's own Wi-Fi network "Writer" (with a captive portal) or on the home network at writer.local, where
-// a phone browser lists, downloads (one file or a zip), uploads, renames and deletes the app's `documents/` files
-// and adds fonts to `settings/fonts/`. Nothing is ever overwritten: an upload that meets a different file of the
-// same name is kept next to it as "name (web N).ext". The page is off until the app starts it, and off again when
-// the app ends or after APP_WEBSHARE_IDLE_S without a request. A 6-digit code, shown by the app, must be typed on
-// the page first (docs/apps.md).
+// A page on the X's own Wi-Fi network (with a captive portal) or on the home network at <host>.local, where a phone
+// browser lists, downloads (one file or a zip), uploads, renames and deletes the app's `documents/` files and adds
+// fonts to `settings/fonts/`. Network name, host name, limits and timeouts are the firmware's config/apps.json
+// (by default "Writer", writer.local, 15 min); the names below are those defaults. Nothing is ever overwritten: an
+// upload that meets a different file of the same name is kept next to it as "name (web N).ext". The page is off
+// until the app starts it, and off again when the app ends or after the idle time (status.idle_left_s). A 6-digit
+// code, shown by the app, must be typed on the page first (docs/apps.md).
 typedef enum {
   APP_WEBSHARE_AUTO = 0, // the default: the saved home network, so the phone stays on its Wi-Fi; only when none is
                          // reachable the access point below (webshare_status says which)
   APP_WEBSHARE_AP = 1, // own access point "Writer", open, address http://4.3.2.1 (the phone's captive portal opens it)
   APP_WEBSHARE_HOME = 2, // on the saved home network, http://writer.local (2.4 GHz only, like net_up)
 } app_webshare_mode_t;
-
-#define APP_WEBSHARE_IDLE_S (15 * 60)
 
 typedef struct {
   bool running;

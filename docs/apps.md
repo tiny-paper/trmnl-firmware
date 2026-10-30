@@ -67,6 +67,7 @@ From any phone browser, no app: list, download (one file or a zip), upload, rena
 (`settings/settings.json`, other names, hidden files) is never listed, read, written or removed. Logic in
 `lib/trmnl/src/webshare_*`, server in `src/webshare.cpp`, page in `src/webshare_page.h`, AP and probe URLs shared
 with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
+Names, limits and times below are the defaults of "Configuration".
 
 | Rule | How |
 |---|---|
@@ -80,6 +81,38 @@ with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
 | No silent overwrite | upload to `.webshare.tmp` in the target folder, renamed when all announced bytes arrived and the file on disk has that size; same bytes: nothing written; other bytes: saved as `title (web N).md`, the old file untouched; rename onto an existing name is refused |
 | Limits | document 1 MB, font 4 MB, 32 KB of the file system stays free, one upload at a time, 30 s without data drops it, leftover temp files are removed at start |
 | Zip | stored, made while sending (no copy in memory), up to 128 documents; a read error cuts the connection |
+
+## Configuration
+
+Every deployment value of the app work is in `config/apps.json` (checked in). `tools/gen_apps_config.py` writes
+`include/apps_config.h` from it; run it after a change and commit both. TRMNL's own settings are not in it.
+Every key is required, unknown keys and values out of range are refused. `test/config` (pytest) fails when the
+header is stale, a key is missing, or one of these values (or a `#define` of its macro) is left in our sources.
+
+| Key | Macro | Default | What |
+|---|---|---|---|
+| `apps.dir` | `APPS_DIR` | `/apps` | where apps are installed and listed |
+| `apps.data_dir` | `APPS_DATA_DIR` | `/appdata` | each app's folder is `<data_dir>/<name>` |
+| `apps.upload_max_bytes` | `APP_UPLOAD_MAX` | 2097152 | largest app, over USB serial or Wi-Fi |
+| `apps.upload_margin_bytes` | `APP_UPLOAD_MARGIN` | 16384 | left free on the file system by an app upload |
+| `wifi_page.ap_ssid` | `WS_AP_SSID` | `Writer` | the X's own open access point |
+| `wifi_page.host_name` | `WS_HOST` | `writer` | mDNS name (`<host>.local`) and the zip's name `<host>-documents.zip` |
+| `wifi_page.page_title` | `WS_PAGE_TITLE` | `Writer files` | the page's title and heading |
+| `wifi_page.idle_s` | `WS_IDLE_S` | 900 | the page switches off after this long without a request; the one-time link's life |
+| `wifi_page.fails_per_lock` | `WS_FAILS_PER_ROUND` | 5 | wrong codes before a lock |
+| `wifi_page.lock_ms` | `WS_LOCK_MS` | 60000 | the first lock, doubled each round |
+| `wifi_page.max_fails` | `WS_MAX_FAILS` | 15 | wrong codes in all, then the page stops |
+| `wifi_page.doc_max_bytes` | `WS_DOC_MAX` | 1048576 | largest document upload |
+| `wifi_page.font_max_bytes` | `WS_FONT_MAX` | 4194304 | largest font upload |
+| `wifi_page.free_margin_bytes` | `WS_FREE_MARGIN` | 32768 | left free on the file system by a page upload |
+| `wifi_page.upload_stall_ms` | `WS_UPLOAD_STALL_MS` | 30000 | an upload without data this long is dropped |
+| `usb_drive.volume_label` | `DRIVE_VOLUME_LABEL` | `TRMNL` | the FAT volume label (A-Z 0-9 space _ -, up to 11) |
+| `usb_drive.usb_vid`, `usb_pid` | `DRIVE_USB_VID`, `_PID` | 0x303A, 0x4002 | USB IDs (Espressif's, esp_tinyusb's MSC PID); use your own when you ship |
+| `usb_drive.usb_manufacturer`, `usb_product`, `usb_serial`, `usb_interface` | `DRIVE_USB_*` | `TRMNL`, `TRMNL X writer`, `000001`, `Writer drive` | USB string descriptors |
+| `usb_drive.scsi_vendor`, `scsi_product` | `DRIVE_SCSI_*` | `TRMNL`, `X writer drive` | SCSI inquiry (8 and 16 characters, padded) |
+| `usb_keyboard.clear_ms` | `USB_PORT_CLEAR_MS` | 1000 | no input power this long before host mode |
+| `usb_keyboard.probe_ms` | `USB_PORT_PROBE_MS` | 3000 | host mode without a keyboard this long: back to device mode |
+| `usb_keyboard.retry_ms` | `USB_PORT_RETRY_MS` | 10000 | then this long before the next probe |
 
 ## Rules the firmware enforces
 
@@ -152,6 +185,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
 | USB port rules (roles: one at a time, only the owner switches back; power, 1 s wait, probe, removal, charger in host mode, drive showing, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
+| configuration: header up to date, every key required, no configured value left in the sources | `test/config` | `.venv/bin/pytest test/config` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |

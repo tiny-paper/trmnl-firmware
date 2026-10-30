@@ -10,10 +10,10 @@
 #define WS_TOKEN_LEN 16 // hex characters
 #define WS_LOGIN_TOKEN_LEN 32 // hex characters: 128 bits
 #define WS_SESSIONS 4
-#define WS_FAILS_PER_ROUND 5 // wrong codes before a lock
-#define WS_LOCK_MS 60000u // first lock; doubles with each round
-#define WS_MAX_FAILS 15 // wrong codes in all: the page is dead until the writer starts it again (new code)
-#define WS_IDLE_MS (15u * 60u * 1000u)
+// From config/apps.json: WS_FAILS_PER_ROUND wrong codes before a lock, WS_LOCK_MS the first lock (doubles with each
+// round), WS_MAX_FAILS wrong codes in all (then the page is dead until the app starts it again, new code), WS_IDLE_S
+#include <apps_config.h>
+#define WS_IDLE_MS (WS_IDLE_S * 1000u)
 
 typedef enum { WS_AUTH_OK, WS_AUTH_WRONG, WS_AUTH_LOCKED, WS_AUTH_DEAD } ws_auth_result_t;
 

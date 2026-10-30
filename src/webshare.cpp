@@ -24,11 +24,8 @@
 #include "app_host.h"
 #include "webshare_page.h"
 
-#define WS_AP_SSID "Writer"
 #define WS_AP_URL "http://4.3.2.1"
-#define WS_HOST "writer"
 #define WS_LIST_MAX 200
-#define WS_UPLOAD_STALL_MS 30000
 
 // ---- LittleFS under the app's folder ----
 
@@ -292,7 +289,7 @@ static void handle_zip(AsyncWebServerRequest *r) {
         S.last_request = millis();
         return (size_t)n;
       });
-  res->addHeader("Content-Disposition", "attachment; filename=\"writer-documents.zip\"");
+  res->addHeader("Content-Disposition", "attachment; filename=\"" WS_HOST "-documents.zip\"");
   res->addHeader("Cache-Control", "no-store");
   r->onDisconnect([job]() {
     ws_zip_end(&job->z);

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <apps_config.h> // WS_PAGE_TITLE
+
 // The page of the writer's Wi-Fi page (webshare.cpp): one HTML file, no libraries. File names are shown with
 // textContent only (they come from users and uploads), never as HTML.
 static const char WEBSHARE_PAGE[] = R"HTML(<!doctype html>
 <html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>Writer files</title>
+<title>)HTML" WS_PAGE_TITLE R"HTML(</title>
 <style>
 body{font:16px/1.4 system-ui,sans-serif;max-width:42rem;margin:0 auto;padding:1rem;color:#111;background:#fff}
 h1{font-size:1.3rem}h2{font-size:1.05rem;margin:1.2rem 0 .3rem}
@@ -14,7 +16,7 @@ button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 0}
 #msg{white-space:pre-line;margin:.6rem 0;padding:.5rem;background:#eef;border-radius:.3rem}#msg.bad{background:#fdd}
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}.row{border-color:#444}#msg{background:#224}#msg.bad{background:#522}}
 </style></head><body>
-<h1>Writer files</h1>
+<h1>)HTML" WS_PAGE_TITLE R"HTML(</h1>
 <div id=msg hidden></div>
 <div id=login>
 <p>Type the 6-digit code shown on the X.</p>

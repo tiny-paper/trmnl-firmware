@@ -10,7 +10,7 @@
 ws_result_t ws_apps_begin(ws_upload_t *u, const ws_fs_t *fs, const char *file, uint32_t size) {
   char name[32], path[64];
   if (!app_install_name_ok(file, name, sizeof(name))) return WS_E_NAME;
-  snprintf(path, sizeof(path), "apps/%s.elf", name);
+  snprintf(path, sizeof(path), APPS_DIR_REL "/%s.elf", name);
   return ws_upload_begin_path(u, fs, path, size, WS_APP_MAX);
 }
 
@@ -67,7 +67,7 @@ ws_result_t ws_apps_end(ws_upload_t *u, const ws_fs_t *fs, bool exact, uint8_t *
 ws_result_t ws_apps_delete(const ws_fs_t *fs, const char *file) {
   char name[32], path[64], bak[72];
   if (!app_install_name_ok(file, name, sizeof(name))) return WS_E_NAME;
-  snprintf(path, sizeof(path), "apps/%s.elf", name);
+  snprintf(path, sizeof(path), APPS_DIR_REL "/%s.elf", name);
   snprintf(bak, sizeof(bak), "%s.bak", path);
   if (!exists(fs, path)) return WS_E_NOT_FOUND;
   if (fs->remove(fs->ctx, path) < 0) return WS_E_IO;
@@ -87,7 +87,7 @@ static bool on_entry(const char *file, bool is_dir, uint32_t size, void *ctx) {
   char name[32];
   if (is_dir || l->count >= l->max || !app_install_name_ok(file, name, sizeof(name))) return l->count < l->max;
   char path[64], bak[72];
-  snprintf(path, sizeof(path), "apps/%s", file);
+  snprintf(path, sizeof(path), APPS_DIR_REL "/%s", file);
   snprintf(bak, sizeof(bak), "%s.bak", path);
   int64_t mtime = l->fs->mtime ? l->fs->mtime(l->fs->ctx, path) : 0;
   l->count++;
@@ -96,10 +96,10 @@ static bool on_entry(const char *file, bool is_dir, uint32_t size, void *ctx) {
 
 int ws_apps_list(const ws_fs_t *fs, int max, ws_apps_cb_t cb, void *ctx) {
   list_t l = {fs, max, 0, cb, ctx};
-  fs->list(fs->ctx, "apps", on_entry, &l);
+  fs->list(fs->ctx, APPS_DIR_REL, on_entry, &l);
   return l.count;
 }
 
 void ws_apps_cleanup(const ws_fs_t *fs) {
-  if (exists(fs, "apps/" WS_TMP_NAME)) fs->remove(fs->ctx, "apps/" WS_TMP_NAME);
+  if (exists(fs, APPS_DIR_REL "/" WS_TMP_NAME)) fs->remove(fs->ctx, APPS_DIR_REL "/" WS_TMP_NAME);
 }

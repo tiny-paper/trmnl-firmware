@@ -15,7 +15,7 @@ app_upload_result_t app_upload_parse(const char *line, uint64_t fs_free, app_upl
   const char *sp = strchr(p, ' ');
   if (!sp || sp == p || (size_t)(sp - p) + 7 > sizeof(h->path)) return APP_UPLOAD_BAD_NAME;
   char path[sizeof(h->path)];
-  snprintf(path, sizeof(path), "/apps/%.*s", (int)(sp - p), p);
+  snprintf(path, sizeof(path), APPS_DIR "/%.*s", (int)(sp - p), p);
   char name[32];
   if (!app_path_name(path, name, sizeof(name))) return APP_UPLOAD_BAD_NAME;
   // <size> <crc>: decimal, then hex, nothing after

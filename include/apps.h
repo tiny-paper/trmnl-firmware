@@ -6,8 +6,8 @@
 // the touch bar ends it. Afterwards the device goes back to TRMNL: the current image and sleep, or an
 // error screen and sleep.
 
-#define APPS_DIR      "/apps"
-#define APPS_DATA_DIR "/appdata"
+#include "apps_config.h" // APPS_DIR, APPS_DATA_DIR (config/apps.json)
+
 #define APPS_MAX      8 // listed in the menu
 #define APPS_PATH_MAX 40 // "/apps/<name>.elf", name up to 24 characters
 

@@ -1,5 +1,7 @@
 #include "app_path.h"
 
+#include <apps_config.h>
+
 #include <string.h>
 
 #include <app_api.h>
@@ -36,7 +38,7 @@ bool app_path_join(const char *base, const char *rel, char *out, size_t out_len)
 }
 
 bool app_path_name(const char *elf_path, char *name, size_t name_len) {
-  static const char prefix[] = "/apps/";
+  static const char prefix[] = APPS_DIR "/";
   static const char suffix[] = ".elf";
   if (!elf_path || strncmp(elf_path, prefix, sizeof(prefix) - 1) != 0) return false;
   const char *start = elf_path + sizeof(prefix) - 1;

@@ -1,0 +1,37 @@
+{
+  "apps": {
+    "dir": "/apps",
+    "data_dir": "/appdata",
+    "upload_max_bytes": 2097152,
+    "upload_margin_bytes": 16384
+  },
+  "wifi_page": {
+    "ap_ssid": "Writer",
+    "host_name": "writer",
+    "page_title": "Writer files",
+    "idle_s": 900,
+    "fails_per_lock": 5,
+    "lock_ms": 60000,
+    "max_fails": 15,
+    "doc_max_bytes": 1048576,
+    "font_max_bytes": 4194304,
+    "free_margin_bytes": 32768,
+    "upload_stall_ms": 30000
+  },
+  "usb_drive": {
+    "volume_label": "TRMNL",
+    "usb_vid": 12346,
+    "usb_pid": 16386,
+    "usb_manufacturer": "TRMNL",
+    "usb_product": "TRMNL X writer",
+    "usb_serial": "000001",
+    "usb_interface": "Writer drive",
+    "scsi_vendor": "TRMNL",
+    "scsi_product": "X writer drive"
+  },
+  "usb_keyboard": {
+    "clear_ms": 1000,
+    "probe_ms": 3000,
+    "retry_ms": 10000
+  }
+}

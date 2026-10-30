@@ -11,6 +11,8 @@
 #include <string.h>
 #include <tusb.h>
 
+#include <apps_config.h>
+
 #define MSC_TASK_STACK 4096
 #define SECTOR 512
 
@@ -27,8 +29,8 @@ static SemaphoreHandle_t task_done;
 
 static const tusb_desc_device_t device_desc = {
     sizeof(tusb_desc_device_t), TUSB_DESC_DEVICE, 0x0200, 0x00, 0x00, 0x00, CFG_TUD_ENDPOINT0_SIZE,
-    0x303A, // Espressif
-    0x4002, // esp_tinyusb's PID for MSC only
+    DRIVE_USB_VID, // config/apps.json; by default Espressif's VID
+    DRIVE_USB_PID, // and esp_tinyusb's PID for MSC only
     0x0100, 1, 2, 3, 1};
 
 enum { ITF_MSC, ITF_COUNT };
@@ -41,7 +43,8 @@ static const uint8_t config_desc[] = {
     TUD_MSC_DESCRIPTOR(ITF_MSC, 4, EP_MSC_OUT, EP_MSC_IN, 64),
 };
 
-static const char *const strings[] = {"", "TRMNL", "TRMNL X writer", "000001", "Writer drive"};
+static const char *const strings[] = {"", DRIVE_USB_MANUFACTURER, DRIVE_USB_PRODUCT, DRIVE_USB_SERIAL,
+                                       DRIVE_USB_INTERFACE};
 
 extern "C" uint8_t const *tud_descriptor_device_cb(void) { return (uint8_t const *)&device_desc; }
 
@@ -87,8 +90,8 @@ extern "C" void tud_mount_cb(void) {
 extern "C" void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16],
                                    uint8_t product_rev[4]) {
   (void)lun;
-  memcpy(vendor_id, "TRMNL   ", 8);
-  memcpy(product_id, "X writer drive  ", 16);
+  memcpy(vendor_id, DRIVE_SCSI_VENDOR, 8);
+  memcpy(product_id, DRIVE_SCSI_PRODUCT, 16);
   memcpy(product_rev, "1.0 ", 4);
 }
 

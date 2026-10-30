@@ -9,7 +9,7 @@
 // system root. Same upload machinery as the writer page (webshare_store), plus the ELF checker before a file is kept.
 
 #define WS_APP_MAX APP_UPLOAD_MAX // one app size limit, over USB serial or Wi-Fi
-#define WS_APPS_TMP_DIR "apps"
+#define WS_APPS_TMP_DIR APPS_DIR_REL
 
 // Starts an upload of `file` ("<name>.elf") of up to `size` bytes (an upper bound is fine when the real size
 // comes later: multipart). WS_E_NAME unless it is a valid app file name.

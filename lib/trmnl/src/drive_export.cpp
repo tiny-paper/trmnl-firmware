@@ -1,4 +1,5 @@
 // The writer's layout files into the drive's FAT image (drive_sync.h)
+#include <apps_config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,7 +108,7 @@ int drive_export(const drive_fs_t *fs, uint8_t *img, size_t img_size, drive_mani
   if (!files) return DRIVE_ENOMEM;
   for (size_t i = 0; i < m->n; i++) files[i] = {m->e[i].path, m->e[i].size};
   fill_t f = {fs, m};
-  int rc = drive_fat_build(img, img_size, "TRMNL", files, m->n, fill, &f, fat_time);
+  int rc = drive_fat_build(img, img_size, DRIVE_VOLUME_LABEL, files, m->n, fill, &f, fat_time);
   free(files);
   if (rc == DRIVE_FAT_EFULL) return DRIVE_EFULL;
   if (rc == DRIVE_FAT_EINVAL) return DRIVE_EIO; // a read failed, or a name the checks above let through
