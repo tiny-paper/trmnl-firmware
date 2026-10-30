@@ -16,6 +16,7 @@
 #include <wifi_network.h>
 
 #include "app_host.h"
+#include "usb_drive.h"
 
 app_host_t app_host;
 
@@ -111,6 +112,7 @@ static app_file_t *file_open(const char *path, int mode) {
   if (!full_path(path, full, sizeof(full)) || !path[0]) return nullptr;
   const char *m = mode == APP_FILE_READ ? FILE_READ : mode == APP_FILE_WRITE ? FILE_WRITE : FILE_APPEND;
   if (mode != APP_FILE_READ && mode != APP_FILE_WRITE && mode != APP_FILE_APPEND) return nullptr;
+  if (mode != APP_FILE_READ && usb_drive_busy()) return nullptr; // the computer has the files
   if (mode == APP_FILE_READ && !LittleFS.exists(full)) return nullptr;
   for (auto &slot : files) {
     if (slot.used) continue;
@@ -178,6 +180,7 @@ static int file_list(const char *dir, app_list_cb_t cb, void *ctx) {
 static int file_rename(const char *from, const char *to) {
   char a[APP_PATH_MAX + 64], b[APP_PATH_MAX + 64];
   if (!full_path(from, a, sizeof(a)) || !full_path(to, b, sizeof(b)) || !from[0] || !to[0]) return APP_EINVAL;
+  if (usb_drive_busy()) return APP_EBUSY;
   if (!LittleFS.exists(a)) return APP_ENOENT;
   return LittleFS.rename(a, b) ? 0 : APP_EIO;
 }
@@ -185,6 +188,7 @@ static int file_rename(const char *from, const char *to) {
 static int file_remove(const char *path) {
   char full[APP_PATH_MAX + 64];
   if (!full_path(path, full, sizeof(full)) || !path[0]) return APP_EINVAL;
+  if (usb_drive_busy()) return APP_EBUSY;
   if (!LittleFS.exists(full)) return APP_ENOENT;
   File f = LittleFS.open(full);
   bool dir = f && f.isDirectory();
@@ -195,6 +199,7 @@ static int file_remove(const char *path) {
 static int file_mkdir(const char *path) {
   char full[APP_PATH_MAX + 64];
   if (!full_path(path, full, sizeof(full)) || !path[0]) return APP_EINVAL;
+  if (usb_drive_busy()) return APP_EBUSY;
   return LittleFS.mkdir(full) ? 0 : APP_EIO;
 }
 
@@ -313,6 +318,8 @@ static const app_api_t table = {
     app_log,         net_up,
     http_request,    setting_get,
     setting_set,     app_exit,
+    usb_drive_start, usb_drive_state,
+    usb_drive_stop,
 };
 
 const app_api_t *app_api_table(void) {

@@ -55,3 +55,8 @@ dependencies:
     version: "==1.3.5"
     rules:
       - if: "target == esp32s3"
+  # The TRMNL X's USB drive (src/usb_drive*.cpp): TinyUSB device stack, MSC class
+  espressif/tinyusb:
+    version: "==0.21.0~1"
+    rules:
+      - if: "target == esp32s3"

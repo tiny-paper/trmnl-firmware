@@ -8,4 +8,6 @@ if(NOT DEFINED SDKCONFIG_DEFAULTS)
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(DEPENDENCIES_LOCK "dependencies.lock.${IDF_TARGET}")
+# TinyUSB (espressif/tinyusb, the X's USB drive) reads its tusb_config.h from the project
+idf_build_set_property(COMPILE_OPTIONS "-I${CMAKE_SOURCE_DIR}/src/tusb" APPEND)
 project(trmnl-firmware)

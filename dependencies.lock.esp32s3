@@ -358,6 +358,22 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.4.6
+  espressif/tinyusb:
+    component_hash: a72b7d67472914ab76309340fd50d578b31e310963d45ad0f81144bde3314752
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    - esp32h4
+    - esp32s31
+    version: 0.21.0~1
   espressif/usb_host_cdc_acm:
     component_hash: f3893a5e117c65f3c4d90d282bbb43624a2fec4144532e5c72223e69bd1b00e9
     dependencies:
@@ -444,11 +460,12 @@ direct_dependencies:
 - espressif/network_provisioning
 - espressif/qrcode
 - espressif/rmaker_common
+- espressif/tinyusb
 - espressif/usb_host_cdc_acm
 - espressif/usb_host_ch34x_vcp
 - espressif/usb_host_cp210x_vcp
 - idf
 - joltwallet/littlefs
-manifest_hash: 29af4e5c994f86ab2168804d31dee2e02f94e296b9a0f8e278cd53d46aafff33
+manifest_hash: d54d3a5125346f2a5a6bec04e60a2bcb10de9902633832511205e172596ed278
 target: esp32s3
 version: 3.0.0

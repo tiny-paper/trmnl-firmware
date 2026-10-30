@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-#define APP_API_VERSION 1
+#define APP_API_VERSION 2 // 2: usb_drive_*
 
 // ---- app header ----
 
@@ -156,6 +156,40 @@ typedef struct {
   bool truncated; // the body did not fit
 } app_http_response_t;
 
+// ---- USB drive (version 2, docs/apps.md "USB drive") ----
+
+// The app's writer layout (documents/<folder>/<title>.md|.txt, settings/settings.json,
+// settings/fonts/) shown to a computer as a USB drive. While it shows, serial over the cable is
+// off and the app's file writes return APP_EBUSY.
+typedef enum {
+  APP_DRIVE_OFF,
+  APP_DRIVE_SHOWN, // waiting for a computer, or in use by one
+  APP_DRIVE_IN_USE, // a computer has it
+} app_drive_state_t;
+
+typedef enum {
+  APP_DRIVE_END_NONE,
+  APP_DRIVE_END_EJECTED, // the computer ejected it
+  APP_DRIVE_END_UNPLUGGED, // cable pulled (or the computer slept) without an eject
+  APP_DRIVE_END_TIMEOUT, // no computer within connect_timeout_ms
+  APP_DRIVE_END_STOPPED, // usb_drive_stop, or the app ended
+} app_drive_end_t;
+
+typedef struct {
+  int32_t result; // 0, or an APP_E* value: nothing from the computer was taken
+  uint8_t ended_by; // app_drive_end_t
+  uint8_t taken; // the computer's changes are on the X
+  uint8_t cut; // the computer was still writing when it went: nothing taken (copy again)
+  uint8_t reserved;
+  uint16_t shown; // files on the drive
+  uint16_t not_shown; // layout files the drive could not hold (names differing only in case)
+  uint16_t added, updated;
+  uint16_t conflicts; // changed on both sides: "<title> (computer).md" kept beside, listed in .drive/conflicts.txt
+  uint16_t kept_deleted; // deleted on the computer, kept on the X
+  uint16_t bad_names; // not taken: name too long or not a layout name
+  uint16_t left_alone; // other files on the drive
+} app_drive_result_t;
+
 // ---- the table ----
 
 // Calls returning int: 0 or a count on success, < 0 (an APP_E* value) on failure. Paths are relative
@@ -170,6 +204,8 @@ typedef struct {
 #define APP_ENOTSUP -5
 #define APP_ETIMEDOUT -6
 #define APP_ENONET -7 // no Wi-Fi
+#define APP_EBUSY -8 // the USB drive is showing the app's files (version 2)
+#define APP_ENOSPC -9 // no room: the drive cannot hold the files, or the X cannot hold the computer's
 
 typedef struct app_api {
   uint32_t version; // APP_API_VERSION of the firmware
@@ -217,6 +253,14 @@ typedef struct app_api {
 
   // Ends the app now (does not return), as if app_main returned `code`
   void (*exit)(int code);
+
+  // Version 2: USB drive. start() exports the files and shows the drive (0; APP_EBUSY if shown,
+  // APP_ENOMEM, APP_ENOSPC, APP_EIO). It ends by itself on eject, unplug or timeout (0: 60 s);
+  // stop() ends it if still on, then fills *res with the last showing's result and returns its
+  // result. The import keeps both copies of a file changed on both sides.
+  int (*usb_drive_start)(uint32_t connect_timeout_ms);
+  int (*usb_drive_state)(void); // app_drive_state_t
+  int (*usb_drive_stop)(app_drive_result_t *res);
 } app_api_t;
 
 #ifdef __cplusplus
