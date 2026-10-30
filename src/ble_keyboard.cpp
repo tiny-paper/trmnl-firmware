@@ -28,6 +28,7 @@
 
 #include "app_host.h"
 #include "ble_keyboard.h"
+#include "evlog.h"
 #include "keyboards.h"
 
 // What this file needs from the configuration (sdkconfigs/sdkconfig.TRMNL_X)
@@ -447,14 +448,14 @@ static void hogp_do(const hogp_act_t &a) {
   case HOGP_DO_READY:
     hid_keys_init(&keys);
     connected = true;
-    Log_info("BLE kbd: %s ready (%s protocol)", pair.target.name, hogp.boot ? "boot" : "report");
+    Log_event("BLE kbd: %s ready (%s protocol)", pair.target.name, hogp.boot ? "boot" : "report");
     apply(ble_pair_connected(&pair));
     screen_up = false;
     ble_screen_release(); // also after a reconnect that showed nothing: a no-op then
     keyboards_post_change();
     return;
   case HOGP_DO_FAIL:
-    Log_info("BLE keys: %s failed (%d)", pair.target.name, a.why);
+    Log_event("BLE keys: %s failed (%d)", pair.target.name, a.why);
     drop_link();
     apply(ble_pair_failed(&pair, a.why, millis()));
     return;
@@ -492,18 +493,18 @@ static void handle(const msg_t &m) {
   }
   case M_CONNECTED:
     conn = m.conn;
-    Log_info("BLE kbd: connected to %s, securing", pair.target.name);
+    Log_event("BLE kbd: connected to %s, securing", pair.target.name);
     hogp_do(hogp_start(&hogp, now));
     break;
   case M_CONNECT_FAILED:
     // no answer (the keyboard asleep) is every CONNECT_MS: not logged
-    if (m.status != BLE_HS_ETIMEOUT) Log_info("BLE kbd: connect failed, %d (%s)", m.status, hogp_reason_str(m.status));
+    if (m.status != BLE_HS_ETIMEOUT) Log_event("BLE kbd: connect failed, %d (%s)", m.status, hogp_reason_str(m.status));
     apply(ble_pair_failed(&pair, BLE_FAIL_TIMEOUT, now));
     break;
   case M_DISCONNECTED:
     if (m.conn != conn) break;
     conn = BLE_HS_CONN_HANDLE_NONE;
-    Log_info("BLE kbd: %s disconnected, reason 0x%x (%s)%s", pair.target.name, (unsigned)m.status,
+    Log_event("BLE kbd: %s disconnected, reason 0x%x (%s)%s", pair.target.name, (unsigned)m.status,
              hogp_reason_str(m.status), pair.bonded ? ", connecting again" : "");
     if (hogp.state == HOGP_SECURING || hogp.state == HOGP_PASSKEY) { // dropped while securing: why
       apply(ble_pair_failed(&pair, hogp_enc_fail(m.status, hogp.state == HOGP_PASSKEY), now));
@@ -692,6 +693,8 @@ void ble_keyboard_end(void) {
   while (task && millis() - start < 2 * STOP_MS) delay(10);
   if (task) {
     Log_error("BLE keys: task did not end - restarting");
+    evlog_add("BLE keys: task did not end, restarting");
+    evlog_flush(false);
     esp_restart();
   }
   connected = false;

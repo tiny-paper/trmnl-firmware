@@ -22,6 +22,8 @@ extern "C" {
 #endif
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
+// Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
+#define APP_API_MINOR 1 // 2.1: event_log_lines
 
 // ---- app header ----
 
@@ -338,6 +340,13 @@ typedef struct app_api {
   // Local time from the clock and the X's time zone. 0 with *out filled (out->zone_known 0: no time zone is set,
   // the fields are UTC), APP_ENOCLOCK, or APP_EINVAL (out NULL)
   int (*local_time)(app_local_time_t *out);
+
+  // ---- API 2.1 (api->size >= APP_API_SLOT(35)) ----
+
+  // The X's event log (docs/apps.md "Event log"): the last `n` lines, oldest first, each ending in '\n', NUL-terminated
+  // in buf ("#<boot> <uptime>s <UTC time or -> <event>[ (xN)]"); fewer when they do not fit. Returns the lines,
+  // APP_EINVAL (buf NULL or len 0) or APP_ENOMEM
+  int (*event_log_lines)(char *buf, size_t len, uint32_t n);
 } app_api_t;
 
 #ifdef __cplusplus
@@ -362,8 +371,9 @@ APP_API_ASSERT(offsetof(app_api_t, keyboard_enable) == APP_API_SLOT(24), "API 2 
 APP_API_ASSERT(offsetof(app_api_t, usb_drive_start) == APP_API_SLOT(26), "API 2: keyboards, then the USB drive");
 APP_API_ASSERT(offsetof(app_api_t, webshare_start) == APP_API_SLOT(29), "API 2: then the Wi-Fi page");
 APP_API_ASSERT(offsetof(app_api_t, battery_percent) == APP_API_SLOT(32), "API 2: then battery and local time");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(34), "API 2 has 34 calls: a new one raises APP_API_VERSION");
+APP_API_ASSERT(offsetof(app_api_t, event_log_lines) == APP_API_SLOT(34), "API 2.1: the event log after API 2");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(35), "API 2.1 has 35 calls: a new one raises APP_API_MINOR");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2, "a new version adds its own size check above");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 1, "a new version adds its own size check above");
 
 #endif // APP_API_H

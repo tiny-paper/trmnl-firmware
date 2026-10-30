@@ -26,8 +26,20 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | USB drive (API 2) | `usb_drive_start(timeout)`, `usb_drive_state`, `usb_drive_stop(result)`: below |
 | Wi-Fi page (API 2) | `webshare_start(mode)`, `webshare_stop`, `webshare_status`: see below |
 | battery, time (API 2) | `battery_percent(&charging)`: the fuel gauge's percent at the last wake (APP_EIO unreadable), charging now; `local_time(&t)`: the clock in the X's time zone (NVS `app_tz`, a POSIX TZ string). TRMNL's firmware keeps no time zone today: until one is stored the fields are UTC with `zone_known` 0; APP_ENOCLOCK before the clock was set |
+| event log (API 2.1) | `event_log_lines(buf, len, n)`: the last n lines of the "Event log", oldest first; check `api->size >= APP_API_SLOT(35)` first (`APP_API_MINOR`) |
 
 Errors are negative `APP_E*` values.
+
+## Event log
+
+Recent device events kept on the X across restarts and deep sleep (`src/evlog.cpp`, ring `lib/trmnl/include/evlog_ring.h`), in `/evlog.bin` (`event_log.bytes`, the oldest go first).
+
+| | |
+|---|---|
+| logged | boot and its reset reason (not deep sleep wakes); BLE keyboard connected, ready, disconnected (reason code and words), connect failed, failed; USB keyboard connected, removed, host mode dropped with a keyboard on, charger unreadable, boost not on; app start, resume, end, errors, restarts; `Net:` lines of `net_up` and `http_request`. Firmware code: `evlog_add(fmt, ...)` or `Log_event(fmt, ...)` (serial log too) |
+| line | `#<boot> <uptime s> <UTC time or -> <text>`; the same text again in a row: ` (xN)` |
+| writes | only on events, at most every `event_log.flush_gap_ms`; at once before the firmware's own restarts and sleep. A crash loses at most that gap. A damaged file: empty log, "the saved log was damaged" |
+| read | `TAPP EVLOG` + newline on the serial port while an app runs: `TAPP EVLOG <line>` each, oldest first, then `TAPP EVLOG END`. `TAPP EVLOG CLEAR`: `TAPP EVLOG CLEARED`. An app: `event_log_lines` |
 
 ## Keyboards
 
@@ -147,6 +159,8 @@ header is stale, a key is missing, or one of these values (or a `#define` of its
 | `usb_keyboard.clear_ms` | `USB_PORT_CLEAR_MS` | 1000 | no input power this long before host mode |
 | `usb_keyboard.probe_ms` | `USB_PORT_PROBE_MS` | 3000 | host mode without a keyboard this long: back to device mode |
 | `usb_keyboard.retry_ms` | `USB_PORT_RETRY_MS` | 10000 | then this long before the next probe |
+| `event_log.bytes` | `EVLOG_BYTES` | 8192 | the event log's file and RAM (1 to 64 KB) |
+| `event_log.flush_gap_ms` | `EVLOG_FLUSH_GAP_MS` | 15000 | at most one event log write this often |
 
 ## Install via Wi-Fi (proof of concept)
 
@@ -259,6 +273,8 @@ status: the switch can take the window of a touch event, and that touch then nev
 | Bluetooth keyboard: pairing and reconnect rules; security before discovery, report and boot protocol, encryption failures (key missing, wrong passkey, passkey timeout), step timeouts, bond deleted on the keyboard side; report maps (report IDs, bitmap, rollover, cut-off and random maps) | `test/test_ble_pair`, `test_ble_hogp`, `test_hid_report_map` (the sim has no Bluetooth) | `pio test -e native -f test_ble_pair -f test_ble_hogp -f test_hid_report_map` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X, touch through the emulated IQS323: Install via Wi-Fi and Receive over USB end on a long press, a middle tap and a long press reach an app right after it started; no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
+| event log: wrap and bounded size, restart, damaged file, repeats, last lines that fit, write rate limit | `test/test_evlog_ring` | `pio test -e native -f test_evlog_ring` |
+| event log on the simulated X: `TAPP EVLOG` lists the app's start across a restart, `CLEAR` | `test/sim/test_evlog.py` | below |
 | no TRMNL sleep while an app runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |

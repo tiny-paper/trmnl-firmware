@@ -1,4 +1,5 @@
 #ifdef BOARD_TRMNL_X
+#include "evlog.h"
 #include "usb_port_role.h"
 #endif
 #include <Arduino.h>
@@ -77,6 +78,7 @@ void goToSleep(void) {
   config_gpio_for_lp();
 #endif
 
+  evlog_flush(true); // the event log, before the file system goes
   filesystem_deinit();
   uint32_t time_to_sleep = refreshInterval.seconds();
   iPrevWakeTime = millis() - startup_time; // save for statistics
@@ -135,6 +137,7 @@ void goToSleepButtonOnly(void) {
     WiFi.disconnect();
   }
   WiFi.mode(WIFI_OFF);
+  evlog_flush(true); // the event log, before the file system goes
   filesystem_deinit();
   preferences.end();
 #if CONFIG_IDF_TARGET_ESP32

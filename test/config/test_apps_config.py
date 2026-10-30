@@ -19,7 +19,8 @@ OURS = ["include/app_api.h", "include/apps.h", "src/app_*", "src/usb_*", "src/we
         "src/drive_*", "src/tusb/*", "lib/trmnl/src/app_*", "lib/trmnl/src/drive_*", "lib/trmnl/src/webshare_*",
         "lib/trmnl/src/usb_port*", "lib/trmnl/src/hid_keys*", "lib/trmnl/src/ble_pair*", "lib/trmnl/include/app_*",
         "lib/trmnl/include/drive_*", "lib/trmnl/include/webshare_*", "lib/trmnl/include/usb_port*",
-        "lib/trmnl/include/hid_keys*", "lib/trmnl/include/ble_pair*"]
+        "lib/trmnl/include/hid_keys*", "lib/trmnl/include/ble_pair*", "src/evlog*", "lib/trmnl/src/evlog*",
+        "lib/trmnl/include/evlog*"]
 # Text that contains a configured word but is not the configured value, with the reason (cut out before the check)
 ALLOWED = {
     "X-Writer": "the page's request header against other sites' forms: protocol, never shown",

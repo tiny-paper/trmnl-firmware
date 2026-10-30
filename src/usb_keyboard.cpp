@@ -13,6 +13,7 @@
 #include <usb/usb_host.h>
 
 #include "app_host.h"
+#include "evlog.h"
 #include "keyboards.h"
 #include "usb_port_role.h"
 
@@ -176,7 +177,7 @@ static void open_keyboard(hid_host_device_handle_t h) {
   }
   hid_keys_init(&keys);
   keyboard_open = true;
-  Log_info("USB keys: keyboard connected");
+  Log_event("USB keys: keyboard connected");
 }
 
 static void drain_reports(void) {
@@ -185,7 +186,7 @@ static void drain_reports(void) {
   while (xQueueReceive(report_q, &r, 0) == pdTRUE) {
     if (r.gone) {
       keyboards_post(ev, hid_keys_release_all(&keys, ev)); // no key stays down
-      Log_info("USB keys: keyboard removed");
+      Log_event("USB keys: keyboard removed");
       keyboards_post_change();
       continue;
     }
@@ -217,19 +218,29 @@ static void port_loop(void *arg) {
     if (port.why != why) {
       why = port.why;
       Log_info("USB keys: %s", usb_port_why_str(why));
+      // not every probe (one per retry_ms without a keyboard): only an unreadable charger, the rare one
+      if (why == USB_WHY_POWER_UNKNOWN) evlog_add("USB keys: %s", usb_port_why_str(why));
     }
     if (mode == USB_PORT_HOST && applied == USB_PORT_DEVICE) {
       if (host_start()) {
         applied = USB_PORT_HOST;
-        if (!boost(true, 200)) Log_error("USB keys: boost not switched on (expander busy)");
+        if (!boost(true, 200)) {
+          Log_error("USB keys: boost not switched on (expander busy)");
+          evlog_add("USB keys: boost not switched on (expander busy)");
+        }
       }
     } else if (mode == USB_PORT_DEVICE && applied == USB_PORT_HOST) {
+      if (was_open) evlog_add("USB keys: host mode dropped with a keyboard on: %s", usb_port_why_str(why));
       if (!boost(false, BOOST_OFF_WAIT_MS)) {
         Log_error("USB keys: boost could not be switched off - restarting");
+        evlog_add("USB keys: boost could not be switched off, restarting");
+        evlog_flush(false);
         esp_restart(); // the restart's handler and the boot switch it off
       }
       if (!host_stop(millis() + STOP_DEADLINE_MS)) {
         Log_error("USB keys: USB host did not stop within %d ms - restarting", STOP_DEADLINE_MS);
+        evlog_add("USB keys: USB host did not stop within %d ms, restarting", STOP_DEADLINE_MS);
+        evlog_flush(false);
         esp_restart();
       }
       drain_reports();
@@ -268,6 +279,8 @@ void usb_keyboard_end(void) {
   while (port_task && millis() - start < 3 * STOP_DEADLINE_MS) delay(10);
   if (port_task) {
     Log_error("USB keys: port task did not end - restarting");
+    evlog_add("USB keys: port task did not end, restarting");
+    evlog_flush(false);
     esp_restart();
   }
 }

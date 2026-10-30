@@ -24,6 +24,7 @@
 
 #include "app_host.h"
 #include "ble_keyboard.h"
+#include "evlog.h"
 #include "keyboards.h"
 #include "usb_drive.h"
 #include "webshare.h"
@@ -272,7 +273,7 @@ static bool net_up(void) {
   r.internal_free = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   char line[200];
   net_up_log_line(line, sizeof(line), &r);
-  Log_info("%s", line);
+  Log_event("%s", line);
   return r.up;
 }
 
@@ -310,8 +311,8 @@ static int http_request(const app_http_request_t *req, void *buf, size_t buf_len
   esp_err_t open_rc = esp_http_client_open(client, req->body ? (int)req->body_len : 0);
   // An app reports this as "no network" too: the log tells it from a failed net_up (TLS out of RAM, DNS, timeout)
   if (open_rc != ESP_OK)
-    Log_info("Net: %s request failed to open: %s, internal RAM %u free", method, esp_err_to_name(open_rc),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    Log_event("Net: %s request failed to open: %s, internal RAM %u free", method, esp_err_to_name(open_rc),
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
   if (open_rc == ESP_OK) {
     if (!req->body || esp_http_client_write(client, (const char *)req->body, (int)req->body_len) == (int)req->body_len) {
       esp_http_client_fetch_headers(client);
@@ -391,6 +392,7 @@ static const app_api_t table = {
     webshare_start,  webshare_stop,
     webshare_status,
     battery_percent, local_time,
+    evlog_tail,
 };
 
 const app_api_t *app_api_table(void) {

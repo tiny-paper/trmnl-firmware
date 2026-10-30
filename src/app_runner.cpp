@@ -27,6 +27,7 @@
 
 #include "app_host.h"
 #include "ble_keyboard.h"
+#include "evlog.h"
 #include "keyboards.h"
 #include "usb_drive.h"
 #include "usb_port_role.h"
@@ -80,6 +81,7 @@ static const char *with_restore_note(Persistence &p, const char *what) {
 // Shows why the app stopped, then sleeps; the next wake is TRMNL's as usual
 static void app_error_and_sleep(const char *name, const char *what) {
   Log_error("Apps: %s: %s", name, what);
+  evlog_add("Apps: %s: %s", name, what);
   bbep.setMode(BB_MODE_1BPP);
   bbep.fillScreen(BBEP_WHITE);
   bbep.setTextColor(BBEP_BLACK, BBEP_WHITE);
@@ -142,11 +144,15 @@ static void serial_command(char c) {
   line[len] = '\0';
   size_t n = len, c_len = sizeof(APP_CMD_NORESUME) - 1;
   len = 0;
+  const char *ev = strstr(line, "TAPP EVLOG"); // the event log (evlog.h), keys before it on the line ignored
+  if (ev && evlog_serial_command(ev)) return;
   // the end of the line: keys typed before it (no newline in between) do not hide the command
   if (n < c_len || strcmp(line + n - c_len, APP_CMD_NORESUME) != 0) return;
   PreferencesPersistence persistence(preferences);
   app_resume_ended(persistence);
   Log_info("Apps: resume cleared by serial command - restarting into TRMNL");
+  evlog_add("Apps: resume cleared by serial command, restarting");
+  evlog_flush(false);
   delay(100);
   ESP.restart();
 }
@@ -258,7 +264,7 @@ void apps_run(const char *path) {
     app_error_and_sleep(path, "not an app path (" APPS_DIR "/<name>.elf)");
   }
   snprintf(app_host.dir, sizeof(app_host.dir), APPS_DATA_DIR "/%s", app_host.name);
-  Log_info("Apps: starting %s", path);
+  Log_event("Apps: starting %s", path);
   app_resume_starting(persistence, path);
   app_install_start(persistence, webshare_fs_root(), app_host.name); // a new version installed over Wi-Fi
 
@@ -298,13 +304,15 @@ void apps_run(const char *path) {
     Log_error("Apps: %s did not exit within %d ms - restarting into TRMNL", app_host.name, APP_EXIT_GRACE_MS);
     app_sleep_gate_app_ended();
     app_resume_ended(persistence);
+    evlog_add("Apps: %s did not exit within %d ms, restarting", app_host.name, APP_EXIT_GRACE_MS);
+    evlog_flush(false);
     delay(100);
     ESP.restart();
   }
   app_sleep_gate_app_ended(); // the device is TRMNL's again: its error screen or image, then sleep
   usb_drive_end_for_exit(); // serial back, the computer's changes taken or not, before anything else
   int code = app_host.code;
-  Log_info("Apps: %s ended with %d", app_host.name, code);
+  Log_event("Apps: %s ended with %d", app_host.name, code);
   keyboards_end(); // the USB port back in device mode before anything else
   usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
   touchbar_input_end();
@@ -404,7 +412,7 @@ void apps_resume_if_due(void) {
   char path[APPS_PATH_MAX];
   app_resume_t due = app_resume_take(persistence, crashed, path, sizeof(path));
   if (due == APP_RESUME_NONE) {
-    if (crashed) Log_info("Apps: reset by a crash (%d), no app resumed", reason);
+    if (crashed) Log_event("Apps: reset by a crash (%d), no app resumed", reason);
     return;
   }
   if (due == APP_RESUME_NO_INPUT) {
@@ -413,7 +421,7 @@ void apps_resume_if_due(void) {
     Log_info("Apps: not resuming %s: no touch or key reached it before the restart", path);
     app_error_and_sleep(name, "not resumed: no touch or key reached it before the restart");
   }
-  Log_info("Apps: resuming %s", path);
+  Log_event("Apps: resuming %s", path);
   apps_run(path);
 }
 

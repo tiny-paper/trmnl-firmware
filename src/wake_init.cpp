@@ -17,6 +17,7 @@
 #include <trmnl_log.h>
 #include <wake_init.h>
 
+#include "evlog.h"
 #include "messages.h"
 
 #ifdef BOARD_TRMNL_X
@@ -144,6 +145,7 @@ void startBoardHardware(const WakeContext &wake, uint32_t init_time) {
   usb_port_serial_now(); // a restart or crash in an app's USB host mode or USB drive left the PHY to the OTG controller
   iqs323_task_i2c_unlock();
   filesystem_init();
+  evlog_begin(); // the event log of the last boots, before an app is resumed
 
   Wire.setClock(100000);
 
