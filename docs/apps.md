@@ -15,7 +15,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | Group | Calls |
 |---|---|
 | screen | `screen_width`, `screen_height`, `screen_set_mode` (1-bit or 4-bit gray, returns the framebuffer), `screen_stride`, `screen_refresh` (rectangle or all, partial or full) |
-| input | `input_poll(ev, timeout)`: key down/up (code, modifiers, UTF-8) from a terminal on the USB serial port, touch bar taps (zone; swipes not yet), `APP_EVENT_EXIT` |
+| input | `input_poll(ev, timeout)`: key down/up (code, modifiers, UTF-8) from `TKEY <text>` lines on the USB serial port (below), touch bar taps (zone; swipes not yet), `APP_EVENT_EXIT` |
 | keyboards (API 2) | `keyboard_enable(APP_KBD_USB \| APP_KBD_BLE)`, `keyboard_status()`: keys of a USB or Bluetooth LE keyboard with their HID usage, `APP_EVENT_KEYBOARD` when one comes or goes (below) |
 | files | `file_open/read/write/seek/close/list/rename/remove/mkdir`, paths relative to `/appdata/<app>/` |
 | time | `millis`, `wall_time` (Unix s, 0 if unset), `sleep_ms` (yields, returns early on an event) |
@@ -196,6 +196,7 @@ Code: `src/webshare_install.cpp` (routes, page in `webshare_install_page.h`), `l
 | app crashes while starting, or any panic or watchdog reset | not resumed: the flag is cleared before each start and set only after 5 s |
 | no touch or key reached the app before the restart (NVS `app_input`) | not resumed: "App stopped ... not resumed" on screen, then TRMNL (a dead touch bar must not trap the user) |
 | `TAPP NORESUME` + newline on the serial port (115200) while an app runs | resume cleared, restart into TRMNL |
+| serial bytes while an app runs | only a `TKEY <text>` line types (`\n \r \t \e \\ \xHH` escapes, `app_serial.h`); `TAPP` lines and all other bytes never reach the app (device, b0ff008: `TAPP EVLOG` was typed into the writer) |
 | stack over `APP_MAX_STACK` (64 KB, internal RAM) | error screen |
 
 ## USB drive (API version 2)
@@ -303,7 +304,7 @@ framebuffer (1-bit and gray), partial refresh, touch timing on the real IQS323, 
 | Pull the cable during an upload of a big file, plug it back, start Receive again | log `upload ... failed: short`; the old app (if any) still starts |
 | Apps..., hello | "Hello from an app", "Run 1, screen 1872x1404", a box, the long press hint; serial log `Apps: Hello (/apps/hello.elf) running` |
 | Tap left, middle, right | one line per tap in the box ("touch left tap", ...), drawn without a full flash |
-| Type in a serial terminal (115200) | "key down 'a' code 512 mods 0" lines |
+| Send `TKEY a` + newline on the serial port (115200) | "key down 'a' code 512 mods 0" lines |
 | Hold the touch bar 2 s | back to the TRMNL screen; log `Apps: hello ended with 0` |
 | Start hello, wait 10 s, press reset | hello comes back ("Run 2"); log `Apps: resuming /apps/hello.elf` |
 | Send `test/sim/apps/crash` (build with `OUT=apps/build apps/build.sh test/sim/apps/crash`, then upload.py), start it | one panic and restart, then TRMNL; not started again |

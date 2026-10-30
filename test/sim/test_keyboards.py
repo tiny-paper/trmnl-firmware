@@ -2,7 +2,7 @@
 the charger's input power on the right pin, keeps device mode while powered and for the first second on battery.
 The sim has no USB-OTG controller (usb_host_install asserts on its ID register) and no keyboard: host mode itself
 is covered by test_usb_port (the rules) and the device check."""
-from test_apps import CRASHED, asleep, count_logs, idle, long_press, must_log, since, start_app
+from test_apps import CRASHED, asleep, count_logs, idle, keys, long_press, must_log, since, start_app
 
 
 def exit_app(sim, name):
@@ -27,7 +27,7 @@ def test_powered_port_stays_a_device_and_serial_keys_work(device, elfs):
     sim = device({"/apps/keys.elf": elfs["keys"]})
     start = start_keys(sim)
     t = since(sim)
-    sim.api("POST", "/serial", b"a")
+    keys(sim, b"a")
     must_log(sim, r"keys: down usage 0x00 code 0x200 mods 0x00 'a'", t)
     r = sim.wait(15, console=r"USB keys: (host mode|no input power)", since=start)
     assert not r.get("ok"), "the dock's power was not seen"

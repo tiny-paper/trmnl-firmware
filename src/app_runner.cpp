@@ -8,6 +8,7 @@
 #include <app_keys.h>
 #include <app_path.h>
 #include <app_resume.h>
+#include <app_serial.h>
 #include <app_sleep_gate.h>
 #include <apps.h>
 #include <bl.h>
@@ -127,26 +128,13 @@ static bool pump_touch(void) {
   return long_press;
 }
 
-// "TAPP NORESUME" + newline on the serial port while an app runs: way out without the touch bar (docs/apps.md):
-// nothing is resumed after the restart that follows
+// A finished serial line that is not keys (app_serial.h): "TAPP NORESUME" (way out without the touch bar, docs/apps.md:
+// nothing is resumed after the restart that follows) and the event log's "TAPP EVLOG ..."; others are ignored
 #define APP_CMD_NORESUME "TAPP NORESUME"
-static void serial_command(char c) {
-  static char line[24];
-  static size_t len;
-  if (c != '\n' && c != '\r') {
-    if (len + 1 >= sizeof(line)) { // keep the last bytes
-      memmove(line, line + 1, len - 1);
-      len--;
-    }
-    line[len++] = c;
-    return;
-  }
-  line[len] = '\0';
-  size_t n = len, c_len = sizeof(APP_CMD_NORESUME) - 1;
-  len = 0;
-  const char *ev = strstr(line, "TAPP EVLOG"); // the event log (evlog.h), keys before it on the line ignored
+static void serial_command(const char *line) {
+  const char *ev = strstr(line, "TAPP EVLOG"); // noise before it on the line ignored
   if (ev && evlog_serial_command(ev)) return;
-  // the end of the line: keys typed before it (no newline in between) do not hide the command
+  size_t n = strlen(line), c_len = sizeof(APP_CMD_NORESUME) - 1;
   if (n < c_len || strcmp(line + n - c_len, APP_CMD_NORESUME) != 0) return;
   PreferencesPersistence persistence(preferences);
   app_resume_ended(persistence);
@@ -157,15 +145,22 @@ static void serial_command(char c) {
   ESP.restart();
 }
 
-// Reads the serial port: a terminal's keys
+static app_serial_t serial_in;
+
+// Reads the serial port: only "TKEY <text>" lines type into the app (a terminal or the sim's tests); TAPP commands and
+// every other byte never reach it as keys (device, b0ff008: "TAPP EVLOG" was typed into the writer's document)
 static void pump_keys(void) {
   app_event_t ev;
   while (Serial.available() > 0) {
     int b = Serial.read();
     if (b < 0) break;
+    uint8_t key;
+    const char *line;
+    app_serial_out_t o = app_serial_feed(&serial_in, (uint8_t)b, &key, &line);
+    if (o == APP_SERIAL_LINE) serial_command(line);
+    if (o != APP_SERIAL_KEY) continue;
     last_key_byte = millis();
-    serial_command((char)b);
-    if (!app_key_feed(&keys, (uint8_t)b, &ev)) continue;
+    if (!app_key_feed(&keys, key, &ev)) continue;
     post(ev);
     ev.type = APP_EVENT_KEY_UP;
     post(ev);
@@ -284,6 +279,7 @@ void apps_run(const char *path) {
   app_host.panel = xSemaphoreCreateMutex();
   app_entry = (app_entry_t)elf.entry;
   app_key_decoder_init(&keys);
+  app_serial_init(&serial_in);
   Serial.begin(115200); // the keys of a terminal on the USB serial port
   touchbar_input_begin(app_host.name); // the tap that started it is not the app's
 

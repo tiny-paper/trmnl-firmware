@@ -6,6 +6,13 @@ import struct
 MAIN_MENU = ["Next Screen", "Previous Screen", "Touchbar Tutorial", "Apps...", "Special...", "Settings...", "Close"]
 
 
+def keys(sim, data):
+    """Keys typed into the running app over the serial port: one "TKEY <escaped bytes>" line (docs/apps.md "Serial
+    port"); plain serial bytes never reach an app"""
+    esc = b"".join(b"\\\\" if c == 0x5C else bytes([c]) if 0x20 <= c < 0x7F else b"\\x%02x" % c for c in data)
+    sim.api("POST", "/serial", b"TKEY " + esc + b"\n")
+
+
 def since(sim):
     return sim.console_total()
 
@@ -101,7 +108,7 @@ def test_hello_starts_from_the_menu_and_a_long_press_returns_to_trmnl(device, el
     sim.touch("left")
     must_log(sim, r"hello: touch left tap", t)
     t = since(sim)
-    sim.api("POST", "/serial", b"a\x1b[A")
+    keys(sim, b"a\x1b[A")
     must_log(sim, r"hello: key down 'a' code 512", t)
     must_log(sim, r"hello: key down code 256", t)
     t = since(sim)
@@ -168,7 +175,7 @@ def test_a_running_app_is_resumed_after_a_restart(device, elfs):
     start = start_app(sim, ["hello"], "hello")
     must_log(sim, r"app hello: hello: run 1", start)
     t = since(sim)
-    sim.api("POST", "/serial", b"a")  # input reached it: the user could leave it, so it may be resumed
+    keys(sim, b"a")  # input reached it: the user could leave it, so it may be resumed
     must_log(sim, r"hello: key down 'a'", t)
     r = sim.wait(30, console=r"never", since=start)  # let it run past APP_RESUME_STARTED_MS (5 s)
     assert not r.get("ok")

@@ -2,7 +2,7 @@
 a restart; TAPP EVLOG CLEAR empties it."""
 import re
 
-from test_apps import must_log, since, start_app
+from test_apps import keys, must_log, since, start_app
 
 
 def evlog(sim):
@@ -35,7 +35,7 @@ def test_the_event_log_lists_events_across_a_restart_and_clears(device, elfs):
     assert re.match(r"#\d+ \d+\.\d{3}s (-|\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ) Apps: starting", starts[-1]), starts
 
     t = since(sim)
-    sim.api("POST", "/serial", b"a")  # input reached it: resumed after the restart
+    keys(sim, b"a")  # input reached it: resumed after the restart
     must_log(sim, r"hello: key down 'a'", t)
     assert not sim.wait(17, console=r"never", since=t).get("ok")  # past the write gap and APP_RESUME_STARTED_MS
     t = since(sim)

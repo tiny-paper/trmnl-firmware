@@ -5,8 +5,8 @@ The touch bar is driven through the sim's IQS323 (POST /touch: its status regist
 hardware uses. The presses come right after the screen or app starts, without waiting for the panel: the middle tap
 that chose it was read by the menu's last mode switch and never published, so on 68248ca the next middle press
 showed no start and was swallowed (no tap, no long press: the owner's dead touch bar in apps)."""
-from test_apps import CRASHED, apps_menu, asleep, choose, count_logs, idle, long_press, MAIN_MENU, must_log, since, \
-    start_app
+from test_apps import CRASHED, apps_menu, asleep, choose, count_logs, idle, keys, long_press, MAIN_MENU, must_log, \
+    since, start_app
 
 
 def test_install_via_wifi_ends_on_a_long_press(device, elfs):
@@ -86,7 +86,7 @@ def test_a_serial_command_clears_the_resume(device, elfs):
     start = start_app(sim, ["hello"], "hello")
     must_log(sim, r"app hello: hello: run 1", start)
     t = since(sim)
-    sim.api("POST", "/serial", b"x")  # input reached it: due for resuming
+    keys(sim, b"x")  # input reached it: due for resuming
     must_log(sim, r"hello: key down 'x'", t)
     assert not sim.wait(8, console=r"never", since=start).get("ok")
     assert sim.prefs().get("app_resume") == "1", sim.prefs()
@@ -115,3 +115,19 @@ def test_a_touch_bar_reset_while_an_app_runs_is_recovered(device, elfs):
     t = since(sim)
     long_press(sim)
     must_log(sim, r"Apps: hello ended with 0", t)
+
+
+def test_serial_lines_never_reach_an_app_as_keys(device, elfs):
+    """Device, writer on b0ff008: "TAPP EVLOG" sent to read the event log was typed into the document. Only a
+    "TKEY " line types; TAPP commands and any other bytes do not."""
+    sim = device({"/apps/hello.elf": elfs["hello"]})
+    start = start_app(sim, ["hello"], "hello")
+    must_log(sim, r"app hello: hello: run 1", start)
+    t = since(sim)
+    sim.api("POST", "/serial", b"TAPP EVLOG\n")
+    must_log(sim, r"TAPP EVLOG END", t)
+    sim.api("POST", "/serial", b"TAPP NOSUCH\nzq\r\n")
+    keys(sim, b"a\x1b[A")
+    must_log(sim, r"hello: key down 'a'", t)
+    must_log(sim, r"hello: key down code 256", t)  # the arrow up of the escape sequence
+    assert not sim.wait(3, console=r"hello: key down '[TAPEVLOGNSUCHzqK ]'", since=t).get("ok"), sim.log_tail()

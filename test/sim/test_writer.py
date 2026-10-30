@@ -8,7 +8,7 @@ import os
 import pytest
 
 import flashfs
-from test_apps import CRASHED, asleep, count_logs, idle, long_press, must_log, since, start_app
+from test_apps import CRASHED, asleep, count_logs, idle, keys, long_press, must_log, since, start_app
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WRITER_ELF = os.environ.get("WRITER_ELF", os.path.join(ROOT, "build", "writer", "writer.elf"))
@@ -47,17 +47,17 @@ def test_writer_types_saves_shows_help_and_returns_to_trmnl(device):
     settle(sim, 5)
     shot(sim, "1-started")
 
-    sim.api("POST", "/serial", TEXT)
+    keys(sim, TEXT)
     settle(sim, 2)
-    sim.api("POST", "/serial", b"\x13")  # Ctrl+S: save now
+    keys(sim, b"\x13")  # Ctrl+S: save now
     settle(sim, 6)
     typed = shot(sim, "2-typed")
 
-    sim.api("POST", "/serial", b"\x1bOP")  # F1
+    keys(sim, b"\x1bOP")  # F1
     settle(sim, 3)
     helped = shot(sim, "3-help")
     assert helped != typed, "F1 did not change the screen"
-    sim.api("POST", "/serial", b"\x1b")  # Esc: back to writing
+    keys(sim, b"\x1b")  # Esc: back to writing
     settle(sim, 3)
 
     # A restart while it runs: the writer is resumed and its text is still there
