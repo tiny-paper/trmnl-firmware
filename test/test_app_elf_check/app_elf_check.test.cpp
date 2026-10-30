@@ -53,7 +53,9 @@ void test_hello_is_accepted() {
   TEST_ASSERT_EQUAL(APP_ELF_OK, app_elf_check(b.data(), b.size(), PLENTY, &info));
   TEST_ASSERT_EQUAL_STRING("Hello", info.name);
   TEST_ASSERT_EQUAL_UINT32(APP_DEFAULT_STACK, info.stack_size);
-  TEST_ASSERT_EQUAL_UINT32(APP_API_VERSION, info.api_version);
+  // the fixture was built against API 1: an app of an older API must still load on a newer firmware
+  TEST_ASSERT_EQUAL_UINT32(1, info.api_version);
+  TEST_ASSERT_TRUE(info.api_version <= APP_API_VERSION);
 }
 
 void test_every_truncation_is_refused() {
