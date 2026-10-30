@@ -5,6 +5,7 @@
 #include <ArduinoLog.h>
 #include <WiFi.h>
 #include <app_logger.h>
+#include <app_sleep_gate.h>
 #include <bl.h>
 #include <board_config.h>
 #include <config.h>
@@ -38,6 +39,12 @@
  * @return none
  */
 void goToSleep(void) {
+  // An app owns the device until it exits (app_sleep_gate.h): no TRMNL sleep under it
+  if (app_sleep_gate_ask("goToSleep") == APP_SLEEP_REFUSED) {
+    Log_error("Sleep: refused, the app %s is running (it keeps the device until it exits)", app_sleep_gate_app());
+    return;
+  }
+  Log_info("Sleep: deep sleep, no app running");
   Log.info("%s [%d]: go to sleep\r\n", __FILE__, __LINE__);
   submitStoredLogs();
 
