@@ -174,6 +174,22 @@ void test_refuses_out_of_range_clusters(void) {
   fat1()[c * 2 + 1] = 0xff;
   Walked w;
   TEST_ASSERT_EQUAL(DRIVE_FAT_ECHAIN, walk(w));
+  // A one-cluster file whose entry names a cluster past the volume, where the bytes read as its
+  // FAT entry say "end": only the range check refuses it (else a read past the image)
+  build_sample();
+  uint16_t a = first_cluster_of("documents/Notes/Hello world.md");
+  const uint16_t far = 8150; // past the 8095 clusters, inside the FAT sectors and the bitmap
+  fat1()[far * 2] = 0xff;
+  fat1()[far * 2 + 1] = 0xff;
+  for (size_t off = 0; off + 32 <= IMG_SIZE; off += 32) {
+    if (img[off + 11] == 0x20 && img[off + 26] == (uint8_t)a && img[off + 27] == (uint8_t)(a >> 8)) {
+      img[off + 26] = (uint8_t)far;
+      img[off + 27] = (uint8_t)(far >> 8);
+      break;
+    }
+  }
+  w.entries.clear();
+  TEST_ASSERT_EQUAL(DRIVE_FAT_ECHAIN, walk(w));
 }
 
 void test_random_damage_never_crashes(void) {
