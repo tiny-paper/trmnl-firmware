@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-#define APP_API_VERSION 1
+#define APP_API_VERSION 2
 
 // ---- app header ----
 
@@ -156,6 +156,31 @@ typedef struct {
   bool truncated; // the body did not fit
 } app_http_response_t;
 
+// ---- Wi-Fi page (API 2) ----
+
+// A page on the X's own Wi-Fi network "Writer" (with a captive portal) or on the home network at writer.local, where
+// a phone browser lists, downloads (one file or a zip), uploads, renames and deletes the app's `documents/` files
+// and adds fonts to `settings/fonts/`. Nothing is ever overwritten: an upload that meets a different file of the
+// same name is kept next to it as "name (web N).ext". The page is off until the app starts it, and off again when
+// the app ends or after APP_WEBSHARE_IDLE_S without a request. A 6-digit code, shown by the app, must be typed on
+// the page first (docs/apps.md).
+typedef enum {
+  APP_WEBSHARE_AP = 1, // own access point "Writer", open, address http://4.3.2.1 (the phone's captive portal opens it)
+  APP_WEBSHARE_HOME = 2, // on the saved home network, http://writer.local (2.4 GHz only, like net_up)
+} app_webshare_mode_t;
+
+#define APP_WEBSHARE_IDLE_S (15 * 60)
+
+typedef struct {
+  bool running;
+  char code[8]; // the 6 digits to type on the page, NUL-terminated
+  char network[33]; // AP mode: the network to join ("Writer"); empty otherwise
+  char address[40]; // what to open: "http://4.3.2.1" (AP) or "http://writer.local" (HOME)
+  char ip[16]; // the X's address, for browsers that do not find .local
+  uint32_t idle_left_s; // seconds until it switches itself off
+  int32_t locked; // 0 usable; 1 too many wrong codes, locked for a while; 2 too many in all: stopped (start again)
+} app_webshare_status_t;
+
 // ---- the table ----
 
 // Calls returning int: 0 or a count on success, < 0 (an APP_E* value) on failure. Paths are relative
@@ -217,6 +242,12 @@ typedef struct app_api {
 
   // Ends the app now (does not return), as if app_main returned `code`
   void (*exit)(int code);
+
+  // API 2: Wi-Fi page. start returns 0 or APP_ENONET (no saved 2.4 GHz network, HOME), APP_ENOMEM, APP_EIO,
+  // APP_EINVAL (bad mode); starting again makes a new code. status fills *st (also when stopped) and returns 0.
+  int (*webshare_start)(app_webshare_mode_t mode);
+  void (*webshare_stop)(void);
+  int (*webshare_status)(app_webshare_status_t *st);
 } app_api_t;
 
 #ifdef __cplusplus

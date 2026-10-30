@@ -22,8 +22,28 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | net | `net_up` (saved 2.4 GHz network; 5 GHz goes through the modem: not yet), `http_request` (method, URL, headers, body; response into the app's buffer; TLS with the IDF certificate bundle) |
 | settings | `setting_get/set`: up to 256 bytes per key, NVS, per app |
 | exit | `exit(code)`: ends the app now |
+| Wi-Fi page (API 2) | `webshare_start(mode)`, `webshare_stop`, `webshare_status`: see below |
 
 Errors are negative `APP_E*` values.
+
+## Wi-Fi page (last resort for moving files)
+
+From any phone browser, no app: list, download (one file or a zip), upload, rename and delete the app's
+`documents/<folder>/<title>.md|.txt`, and add `settings/fonts/*.ttf|.otf`. Anything else in the app folder
+(`settings/settings.json`, other names, hidden files) is never listed, read, written or removed. Logic in
+`lib/trmnl/src/webshare_*`, server in `src/webshare.cpp`, page in `src/webshare_page.h`, AP and probe URLs shared
+with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
+
+| Rule | How |
+|---|---|
+| Off by default | only `webshare_start(APP_WEBSHARE_AP or APP_WEBSHARE_HOME)` from the app; off when the app ends (runner), after 15 min without a request, after 15 wrong codes |
+| AP mode | open network "Writer", `http://4.3.2.1`, phones open it as a captive portal |
+| Home mode | saved 2.4 GHz network, `http://writer.local` (mDNS) and the IP in `status.ip` |
+| Code | 6 digits in `status.code`, the app shows it on the X's screen; no API works without a session from `POST /api/login`; 5 wrong codes lock 60 s (doubling), 15 stop the page |
+| Changes | need the `X-Writer` header (another site's form cannot send it) and the session cookie (SameSite=Strict) |
+| No silent overwrite | upload to `.webshare.tmp` in the target folder, renamed when all announced bytes arrived and the file on disk has that size; same bytes: nothing written; other bytes: saved as `title (web N).md`, the old file untouched; rename onto an existing name is refused |
+| Limits | document 1 MB, font 4 MB, 32 KB of the file system stays free, one upload at a time, 30 s without data drops it, leftover temp files are removed at start |
+| Zip | stored, made while sending (no copy in memory), up to 128 documents; a read error cuts the connection |
 
 ## Rules the firmware enforces
 
@@ -64,6 +84,7 @@ again); Wi-Fi and settings stay in NVS.
 |---|---|---|
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys | `test/test_app_path`, `test_app_resume`, `test_app_keys` | `pio test -e native -f test_app_*` |
+| Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim` (pytest) | below |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
@@ -85,3 +106,25 @@ framebuffer (1-bit and gray), partial refresh, touch timing on the real IQS323, 
 | Hold the touch bar 2 s | back to the TRMNL screen; log `Apps: hello ended with 0` |
 | Start hello, wait 10 s, press reset | hello comes back ("Run 2"); log `Apps: resuming /apps/hello.elf` |
 | Flash an image with `test/sim/apps/crash` (build with `OUT=apps/build apps/build.sh test/sim/apps/crash`), start it | one panic and restart, then TRMNL; not started again |
+
+### Wi-Fi page (nothing of this ran on a device or in the simulator)
+
+Needs an app that calls `webshare_start` and shows `status.code`. Take a phone and a PC browser.
+
+| Step | Look for |
+|---|---|
+| Start AP mode | network "Writer" appears, phone opens the page by itself (captive portal; if not, `http://4.3.2.1`), X shows the code |
+| Open the page, type a wrong code 5 times | "too many wrong codes", the right code is refused for a minute |
+| Right code | list of documents and fonts, free space |
+| Upload a .md to a folder, then the same again, then a changed copy | "saved", "already on the X", "kept both, saved as ... (web 1)"; the writer shows both files; the first is unchanged |
+| Upload while pulling the phone off Wi-Fi at 50 % | no half file in the writer's list; next start log has no leftover `.webshare.tmp` |
+| Upload 1 MB+ and a file with a name like `a:b.md` | refused with a reason |
+| Rename onto an existing title | "name already taken" |
+| Delete a document | gone from the writer's list |
+| Download all as zip | opens on the phone and PC, same files and sizes |
+| Add a .ttf | appears under Fonts; writer can use it |
+| Leave it 15 min | page stops answering, "Writer" network gone; the app's status says not running |
+| Long press (leave the app) while the page is on | network gone |
+| Home mode with the home Wi-Fi | `writer.local` opens on PC and iPhone; on Android use the IP |
+| Android and iPhone captive pop-up | opens the page (iOS pop-up may block cookies: then open it in Safari via `http://4.3.2.1`) |
+| Heap while serving a 100-file zip | no reset; serial log shows no allocation errors |

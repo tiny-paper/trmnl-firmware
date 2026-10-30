@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "app_host.h"
+#include "webshare.h"
 
 #define APP_POLL_MS       20
 #define APP_LONG_PRESS_MS 1500
@@ -278,6 +279,7 @@ void apps_run(const char *path) {
   int code = app_host.code;
   Log_info("Apps: %s ended with %d", app_host.name, code);
   iqs323_task_set_streaming_mode(false);
+  webshare_stop(); // the page never outlives the app
   app_host_close_files();
   esp_elf_deinit(&elf);
   vQueueDelete(app_host.events);

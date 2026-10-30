@@ -30,3 +30,6 @@ void app_host_finish(int code);
 
 // Closes the files the app left open; called by the runner once the app ended
 void app_host_close_files(void);
+
+// The same as net_up in the table (connects the saved 2.4 GHz network), for the Wi-Fi page
+bool app_host_net_up(void);
