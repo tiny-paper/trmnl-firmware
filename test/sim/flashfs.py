@@ -34,3 +34,24 @@ def with_files(merged_path, out_path, files):
     assert len(fs_bytes) == FS_SIZE, "the merged image holds no full file system"
     image[FS_OFFSET:FS_OFFSET + FS_SIZE] = add_files(fs_bytes, files)
     open(out_path, "wb").write(image)
+
+
+def read_files(flash_path, under="/"):
+    """{path: bytes} of every file below `under` in the LittleFS partition of a sim flash file (read only)"""
+    with open(flash_path, "rb") as f:
+        f.seek(FS_OFFSET)
+        fs_bytes = f.read(FS_SIZE)
+    fs = littlefs.LittleFS(block_size=BLOCK, block_count=len(fs_bytes) // BLOCK, mount=False)
+    fs.context.buffer = bytearray(fs_bytes)
+    fs.mount()
+    out = {}
+    try:
+        for root, _dirs, files in fs.walk(under):
+            for name in files:
+                path = root.rstrip("/") + "/" + name
+                with fs.open(path, "rb") as fh:
+                    out[path] = fh.read()
+    except FileNotFoundError:
+        pass
+    fs.unmount()
+    return out
