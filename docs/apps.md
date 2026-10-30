@@ -83,7 +83,9 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | internal RAM left for the heap at boot (esp_idf_size DIRAM remain) | 182,561 B | 163,409 B |
 | while an app uses BLE: controller heap (internal), NimBLE host task 4 KB, keyboard task 8 KB | | log `BLE keys: radio on; internal RAM N bytes used` (device check) |
 | NimBLE pools, scan list, message queue, the app's saved screen (up to 1.3 MB in gray) | | PSRAM |
-| Wi-Fi (10 static RX buffers 16 KB, dynamic RX/TX) | internal | internal |
+| Wi-Fi (10 static RX buffers 16 KB, dynamic RX/TX), lwIP | internal | PSRAM first (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`); Wi-Fi code in flash (`ESP_WIFI_IRAM_OPT`, `ESP_WIFI_RX_IRAM_OPT` off) |
+| an app's malloc, calloc, realloc | | PSRAM first, internal only when PSRAM is full (`src/app_heap.cpp`) |
+| the firmware's malloc | | internal up to 4 KB (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL`), larger in PSRAM; 32 KB internal kept for DMA, stacks and explicit internal allocations (`CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL`) |
 | TLS (mbedTLS record buffers, 16 KB in + 4 KB out, allocated per record; handshake state) | PSRAM | PSRAM (below) |
 
 ### Memory for HTTPS
@@ -92,6 +94,8 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 |---|---|
 | where mbedTLS allocates | PSRAM (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`), record buffers only while a record is in flight (`CONFIG_MBEDTLS_DYNAMIC_BUFFER`). Before (internal RAM: about 40 KB per handshake) every HTTPS request with the BLE keyboard on failed to open (out of memory) |
 | guard | `test/config/test_tls_memory.py`: mbedTLS and NimBLE pools in PSRAM, one BLE connection |
+| AES in software | hardware AES copies every PSRAM record through internal DMA bounce buffers (up to 1600 B in and out per call); on the writer's sync that failed (`out of memory: caps 0x8, 1370 bytes`; 0x8 is `MALLOC_CAP_DMA`). `CONFIG_MBEDTLS_HARDWARE_AES` off: at 240 MHz no slower (IDF help). Guard `test/config/test_internal_ram.py`: these settings, the headroom estimate and the event log line |
+| event log `out of memory` | `caps 0x<caps>, <size> bytes failed, int <internal free>/<largest block>` (internal RAM at the failure) |
 | `http_request` out of memory | returns `APP_ENOMEM` (also `resp.status`) when the client or the TLS handshake could not allocate; an app says "not enough memory for the secure connection", not "no network". Other open failures (DNS, refused, certificate, timeout) stay `APP_ETIMEDOUT`; no Wi-Fi is `APP_ENONET`. Rules: `http_open_error.h`, test `test_http_open_error` |
 
 ## USB port roles
