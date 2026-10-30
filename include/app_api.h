@@ -323,11 +323,24 @@ typedef struct app_api {
 }
 #endif
 
-// The event is copied into apps built for API 1: its size and offsets stay
 #ifdef __cplusplus
-static_assert(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
+#define APP_API_ASSERT(cond, msg) static_assert(cond, msg)
 #else
-_Static_assert(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
+#define APP_API_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
+
+// The event is copied into apps built for API 1: its size and offsets stay
+APP_API_ASSERT(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
+
+// The table only grows: each version's calls at fixed places (P = a pointer: 104 / 136 bytes on the X).
+// API 1: 24 calls, screen_width .. exit. API 2: keyboards (2), USB drive (3), Wi-Fi page (3)
+#define APP_API_SLOT(n) (8 + (n) * sizeof(void *))
+APP_API_ASSERT(offsetof(app_api_t, screen_width) == APP_API_SLOT(0), "API 1 starts after version and size");
+APP_API_ASSERT(offsetof(app_api_t, exit) == APP_API_SLOT(23), "API 1 has 24 calls");
+APP_API_ASSERT(offsetof(app_api_t, keyboard_enable) == APP_API_SLOT(24), "API 2 starts right after API 1");
+APP_API_ASSERT(offsetof(app_api_t, usb_drive_start) == APP_API_SLOT(26), "API 2: keyboards, then the USB drive");
+APP_API_ASSERT(offsetof(app_api_t, webshare_start) == APP_API_SLOT(29), "API 2: then the Wi-Fi page");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(32), "API 2 has 32 calls: a new one raises APP_API_VERSION");
+APP_API_ASSERT(APP_API_VERSION == 2, "a new version adds its own size check above");
 
 #endif // APP_API_H

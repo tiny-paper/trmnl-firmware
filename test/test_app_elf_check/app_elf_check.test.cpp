@@ -1,6 +1,7 @@
 // The app ELF checker (app_elf_check.h) against a real app, apps/hello built by apps/build.sh, and
-// damaged copies of it. Regenerate the fixture after changing the app's build flags:
-//   apps/build.sh hello && python3 test/test_app_elf_check/gen_fixture.py
+// damaged copies of it. The fixture is hello built against API 1 (include/app_api.h of 3a4c7d8), so
+// test_hello_is_accepted proves an older app loads on this firmware; rebuild it against that header only:
+//   git show 3a4c7d8:include/app_api.h > /tmp/v1/app_api.h, build hello with -I /tmp/v1 first, gen_fixture.py
 #include <app_elf_check.h>
 #include <stdio.h>
 #include <string.h>
