@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "app_host.h"
+#include "ble_keyboard.h"
 #include "keyboards.h"
 
 #define APP_POLL_MS       20
@@ -98,6 +99,7 @@ static void post(const app_event_t &ev) {
 }
 
 static void post_tap(int channel) {
+  if (ble_keyboard_tap(channel)) return; // the Bluetooth pairing screen's
   app_event_t ev = {};
   ev.type = APP_EVENT_TOUCH;
   ev.zone = (uint8_t)channel;

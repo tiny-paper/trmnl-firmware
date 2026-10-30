@@ -1,4 +1,4 @@
-// Keys: the keyboard test app (docs/apps.md "Keyboards"). Asks for a USB keyboard, shows each key with its HID
+// Keys: the keyboard test app (docs/apps.md "Keyboards"). Asks for a USB and a Bluetooth keyboard, shows each key with its HID
 // usage and modifiers and each keyboard that comes or goes, and returns on a long press.
 
 #include <app_api.h>
@@ -54,13 +54,16 @@ int app_main(const app_api_t *api) {
   if (api->version < 2 || api->size < sizeof(app_api_t)) return 2;
   draw_t d;
   if (!draw_begin(&d, api)) return 3;
-  int rc = api->keyboard_enable(APP_KBD_USB);
-  api->log("keys: usb keyboard enable %d", rc);
-  draw_text(&d, X0, 120, "Keys: plug in a USB keyboard (OTG adapter)", SCALE);
-  draw_text(&d, X0, 200, rc == 0 ? "Unplug the charger: the port is a host only on battery" : "USB keys refused",
-            SCALE);
+  draw_text(&d, X0, 120, "Keys: a USB keyboard (OTG adapter) or a Bluetooth one", SCALE);
+  draw_text(&d, X0, 200, "Unplug the charger: the port is a host only on battery", SCALE);
   draw_text(&d, X0, d.h - 120, "Long press the touch bar to go back", SCALE);
-  api->screen_refresh(0, APP_REFRESH_FULL);
+  api->screen_refresh(0, APP_REFRESH_FULL); // drawn before a pairing screen: it comes back after it
+  int rc = api->keyboard_enable(APP_KBD_USB | APP_KBD_BLE);
+  api->log("keys: keyboard enable %d", rc);
+  if (rc) {
+    draw_text(&d, X0, 280, "Keyboards refused", SCALE);
+    api->screen_refresh(0, APP_REFRESH_FULL);
+  }
 
   char line[64];
   int next = 0;

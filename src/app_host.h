@@ -19,6 +19,7 @@ typedef struct {
   SemaphoreHandle_t done; // given once the app returned or called exit()
   volatile int code; // its result
   SemaphoreHandle_t panel; // the panel driver and its IO expander: an app's refresh, the USB port's charger reads
+  volatile bool screen_held; // the firmware's Bluetooth pairing screen is up: the app's refreshes wait
 } app_host_t;
 
 extern app_host_t app_host;

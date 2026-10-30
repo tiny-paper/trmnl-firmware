@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-// The app asks for keyboards (APP_KBD_* bits; 0 stops them). Returns 0 or APP_ENOTSUP
+// The app asks for keyboards (APP_KBD_* bits; 0 stops them). Returns 0, APP_EINVAL or APP_ENOMEM
 int keyboards_enable(uint32_t sources);
 
 // APP_KBD_* of the keyboards connected now
