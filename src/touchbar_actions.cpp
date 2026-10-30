@@ -13,6 +13,7 @@
 #include "menu.h"
 #include "rtc_wake_stub_trmnl_x.h"
 #include "touchbar_gesture.h"
+#include "touchbar_input.h"
 
 // Touchbar indicator to redraw after a full-refresh (e.g. logo screen)
 static touchbar_side_t pending_indicator_side = TOUCHBAR_LEFT;
@@ -26,24 +27,28 @@ static const menu_hint_t touchbar_menu_hints[MENU_HINT_SLOTS] = {
     {"Down", MENU_HINT_ICON_DOWN},
 };
 
-// Touch starts not reported yet (bit n: channel n). The menu reads the bar between display
-// updates, so it goes by touch starts: a tap during an update still counts.
-static uint8_t touchbar_menu_pending_starts = 0;
+// The menu acts on touch starts (touchbar_input.h): a tap during a display update still counts. Starts not
+// returned yet wait here.
+static touch_event_t touchbar_menu_pending[TOUCHBAR_INPUT_MAX];
+static int touchbar_menu_pending_n = 0, touchbar_menu_pending_i = 0;
 
 static void touchbar_menu_begin(void) {
-  iqs323_task_set_streaming_mode(true); // fresh touch data while the menu polls
-  iqs323_task_take_touch_starts();      // the middle tap that opened the menu
-  touchbar_menu_pending_starts = 0;
+  touchbar_input_begin("menu");
+  touchbar_menu_pending_n = touchbar_menu_pending_i = 0;
 }
 
-static void touchbar_menu_end(void) { iqs323_task_set_streaming_mode(false); }
+static void touchbar_menu_end(void) { touchbar_input_end(); }
 
 static menu_input_t touchbar_menu_read(void) {
-  touchbar_menu_pending_starts |= iqs323_task_take_touch_starts();
-  for (uint8_t channel = 0; channel < 3; channel++) {
-    if (!(touchbar_menu_pending_starts & (1 << channel))) continue;
-    touchbar_menu_pending_starts &= ~(1 << channel);
-    switch (channel) {
+  for (;;) {
+    if (touchbar_menu_pending_i == touchbar_menu_pending_n) {
+      touchbar_menu_pending_i = 0;
+      touchbar_menu_pending_n = touchbar_input_poll(touchbar_menu_pending);
+      if (!touchbar_menu_pending_n) return menu_input_t::NONE;
+    }
+    const touch_event_t &ev = touchbar_menu_pending[touchbar_menu_pending_i++];
+    if (ev.gesture != touch_gesture_t::DOWN) continue;
+    switch (ev.channel) {
     case 0:
       return menu_input_t::UP;
     case 2:
@@ -52,7 +57,6 @@ static menu_input_t touchbar_menu_read(void) {
       return menu_input_t::SELECT;
     }
   }
-  return menu_input_t::NONE;
 }
 
 // Shown on the first touch, since the touch bar used to work differently, and from the main menu

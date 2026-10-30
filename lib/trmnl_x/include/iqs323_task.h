@@ -208,7 +208,8 @@ bool iqs323_task_read_wake_stub_snapshot(touchbar_snapshot_t *out);
 
 /**
  * @brief Switches between streaming mode (frequent RDY windows, for active
- * hold-tracking) and event mode (RDY only on real events, lower power).
+ * hold-tracking) and event mode (RDY only on real events, lower power), then reads the status and publishes
+ * the snapshot: the switch may have consumed the window of a touch event.
  */
 bool iqs323_task_set_streaming_mode(bool enable);
 

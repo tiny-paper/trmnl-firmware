@@ -374,6 +374,11 @@ bool iqs323_task_set_streaming_mode(bool enable)
         iqs323.setEventMode(STOP);
     }
     fast_poll_requested = enable;
+    // The switch talks to the chip in the window a touch event opened and closes it: that event (a release, or a
+    // press) was never published and the snapshot stayed stale, so the next press on that channel showed no start
+    // (68248ca: the middle tap that chose an app swallowed the next middle press). Read and publish it now.
+    iqs323.queueValueUpdates();
+    iqs323_publish_snapshot();
 
     xSemaphoreGive(iqs323_mutex);
     return true;

@@ -8,6 +8,7 @@
 #include <app_keys.h>
 #include <app_path.h>
 #include <app_resume.h>
+#include <app_sleep_gate.h>
 #include <apps.h>
 #include <bl.h>
 #include <cached_images.h>
@@ -17,9 +18,9 @@
 #include <filesystem.h>
 #include <fonts.h>
 #include <globals.h>
-#include <iqs323_task.h>
 #include <preferences_persistence.h>
 #include <qrcodegen.h>
+#include <touchbar_input.h>
 #include <trmnl_log.h>
 
 #include <algorithm>
@@ -32,7 +33,6 @@
 #include "webshare.h"
 
 #define APP_POLL_MS       20
-#define APP_LONG_PRESS_MS 1500
 #define APP_KEY_IDLE_MS   50 // after a lone ESC: the Escape key, not the start of a sequence
 
 // ---- listing ----
@@ -95,15 +95,6 @@ static void app_error_and_sleep(const char *name, const char *what) {
 
 // ---- input ----
 
-// The touch bar, per channel (0 left, 1 middle, 2 right): a tap on release, an exit request once
-// a touch has been held for APP_LONG_PRESS_MS
-typedef struct {
-  bool down;
-  uint32_t since;
-  bool long_press;
-} app_touch_t;
-
-static app_touch_t touch[3];
 static app_key_decoder_t keys;
 static uint32_t last_key_byte;
 
@@ -122,49 +113,16 @@ static void post_tap(int channel) {
   post(ev);
 }
 
-// Polls the touch bar; true on a new long press
+// Reads the touch bar (touchbar_input.h, the menu's path): taps to the app or the pairing screen; true on a long press
 static bool pump_touch(void) {
-  touchbar_snapshot_t snap;
-  iqs323_task_read_snapshot(&snap);
-  uint8_t starts = iqs323_task_take_touch_starts();
-  const bool now_down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
+  touch_event_t evs[TOUCHBAR_INPUT_MAX];
+  int n = touchbar_input_poll(evs);
   bool long_press = false;
-  uint32_t now = millis();
-  for (int ch = 0; ch < 3; ch++) {
-    app_touch_t &t = touch[ch];
-    bool started = starts & (1 << ch);
-    // A new touch start always begins a new touch: the touch held at touch_reset (the tap that chose the app or
-    // screen) may never show its release in the snapshot, and a stale "down" swallowed every later press: no tap,
-    // no long press (device report: Install via Wi-Fi and apps could not be left)
-    if (started || (!t.down && now_down[ch])) {
-      Log_info("Touch: ch%d down%s%s", ch, now_down[ch] ? "" : " (start only)", t.down ? ", the last one's release missed" : "");
-      t = {true, now, false};
-    }
-    if (!t.down) continue;
-    if (now_down[ch]) {
-      if (!t.long_press && now - t.since >= APP_LONG_PRESS_MS) {
-        t.long_press = true;
-        long_press = true;
-        Log_info("Touch: ch%d long press", ch);
-      }
-      continue;
-    }
-    // released (or a tap too short for the snapshot to show it down)
-    Log_info("Touch: ch%d up after %lu ms%s", ch, (unsigned long)(now - t.since), t.long_press ? "" : ": tap");
-    if (!t.long_press) post_tap(ch);
-    t.down = false;
+  for (int i = 0; i < n; i++) {
+    if (evs[i].gesture == touch_gesture_t::TAP) post_tap(evs[i].channel);
+    if (evs[i].gesture == touch_gesture_t::LONG) long_press = true;
   }
   return long_press;
-}
-
-// A touch still down (the tap that chose the app, or the one that woke the device) is not the app's
-static void touch_reset(void) {
-  touchbar_snapshot_t snap;
-  iqs323_task_read_snapshot(&snap);
-  const bool down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
-  for (int ch = 0; ch < 3; ch++) {
-    touch[ch] = {down[ch], millis(), down[ch]};
-  }
 }
 
 // "TAPP NORESUME" + newline on the serial port while an app runs: way out without the touch bar (docs/apps.md):
@@ -321,9 +279,7 @@ void apps_run(const char *path) {
   app_entry = (app_entry_t)elf.entry;
   app_key_decoder_init(&keys);
   Serial.begin(115200); // the keys of a terminal on the USB serial port
-  iqs323_task_set_streaming_mode(true); // fresh touch data while the app runs
-  iqs323_task_take_touch_starts();      // the tap that started it
-  touch_reset();
+  touchbar_input_begin(app_host.name); // the tap that started it is not the app's
 
   TaskHandle_t task = nullptr;
   if (!app_host.events || !app_host.done || !app_host.panel ||
@@ -332,6 +288,7 @@ void apps_run(const char *path) {
     app_resume_ended(persistence);
     app_error_and_sleep(app_host.name, with_restore_note(persistence, "not enough memory for its stack"));
   }
+  app_sleep_gate_app_started(app_host.name);
   Log_info("Apps: %s (%s) running, %lu bytes of stack", info.name, path, (unsigned long)info.stack_size);
   // For tools/app_addr2line.py: the app's frames in a panic backtrace are entry - e_entry + their ELF address
   Log_info("Apps: %s entry at 0x%08lx", app_host.name, (unsigned long)(uintptr_t)elf.entry);
@@ -339,16 +296,18 @@ void apps_run(const char *path) {
   if (!app_supervise(persistence)) {
     // Its task may hold a lock or be anywhere in its code: only a restart cleans that up
     Log_error("Apps: %s did not exit within %d ms - restarting into TRMNL", app_host.name, APP_EXIT_GRACE_MS);
+    app_sleep_gate_app_ended();
     app_resume_ended(persistence);
     delay(100);
     ESP.restart();
   }
+  app_sleep_gate_app_ended(); // the device is TRMNL's again: its error screen or image, then sleep
   usb_drive_end_for_exit(); // serial back, the computer's changes taken or not, before anything else
   int code = app_host.code;
   Log_info("Apps: %s ended with %d", app_host.name, code);
   keyboards_end(); // the USB port back in device mode before anything else
   usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
-  iqs323_task_set_streaming_mode(false);
+  touchbar_input_end();
   webshare_stop(); // the page never outlives the app
   app_host_close_files();
   esp_elf_deinit(&elf);
@@ -422,16 +381,14 @@ void apps_install_session(void) {
   bbep.fullUpdate(CLEAR_FAST, false);
 
   Log_info("Apps: install screen shown, a long press stops it");
-  iqs323_task_set_streaming_mode(true);
-  iqs323_task_take_touch_starts();
-  touch_reset();
+  touchbar_input_begin("Install via Wi-Fi");
   while (true) {
     delay(APP_POLL_MS * 5);
     if (pump_touch()) break;
     webshare_status(&st);
     if (!st.running) break; // idle for 15 minutes, or too many wrong codes
   }
-  iqs323_task_set_streaming_mode(false);
+  touchbar_input_end();
   webshare_stop();
   show_last_image_and_sleep();
 }
