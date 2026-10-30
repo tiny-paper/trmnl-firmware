@@ -89,10 +89,10 @@ static void flusher(void *arg) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(EVLOG_TASK_POLL_MS));
     uint32_t n = oom_count;
     if (n != oom_seen) {
-      // one text per caps: repeats count up (xN) instead of filling the log
+      // one text per caps and size: repeats count up (xN) instead of filling the log; caps first, the screen cuts
       Log_info("Event log: out of memory, %lu allocations failed, last %lu bytes caps 0x%lx",
                (unsigned long)(n - oom_seen), (unsigned long)oom_size, (unsigned long)oom_caps);
-      evlog_add("out of memory: allocations failed (caps 0x%lx)", (unsigned long)oom_caps);
+      evlog_add("out of memory: caps 0x%lx, %lu bytes failed", (unsigned long)oom_caps, (unsigned long)oom_size);
       oom_seen = n;
     }
     write_out(false);

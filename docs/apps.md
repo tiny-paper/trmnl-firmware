@@ -74,7 +74,7 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | not a keyboard (no HID service, no keyboard report, no boot input) | the list again, "That is not a keyboard" |
 | Apps menu | "Forget <name>" while a keyboard is bonded: both records cleared, the next app pairs again |
 | Wi-Fi at the same time | software coexistence (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE`, a build error without it); Wi-Fi modem sleep while BLE is on (during and after an app's `net_up` join, and when BLE starts with Wi-Fi up); scan window 30 ms of 50 ms for listing and for connecting (NimBLE's default connect scan holds the radio the whole attempt); rules in `radio_share.h`, test `test_radio_share` |
-| `net_up` log | one line per call: `Net: up in N ms (already/joined, rssi, ble ...)` or `Net: failed: <reason> after N ms, wl_status, rssi, ble ..., internal RAM N free`; an HTTP request that fails to open logs `Net: <method> request failed to open: <error>` (apps report both as no network) |
+| `net_up` log | one line per call: `Net: up in N ms (already/joined, rssi, ble ...)` or `Net: failed: <reason> after N ms, wl_status, rssi, ble ..., internal RAM N free`; an HTTP request that fails to open logs `Net: <method> open: no memory|failed, 0x<esp_err> tls 0x<ESP-TLS esp_err> -0x<mbedTLS code>, int <internal free>/<largest block>, psram <largest block>` (RAM measured before the open; the error names on the serial log) |
 
 | Memory (TRMNL_X build) | Bluetooth off (before) | on |
 |---|---|---|
@@ -83,7 +83,16 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | internal RAM left for the heap at boot (esp_idf_size DIRAM remain) | 182,561 B | 163,409 B |
 | while an app uses BLE: controller heap (internal), NimBLE host task 4 KB, keyboard task 8 KB | | log `BLE keys: radio on; internal RAM N bytes used` (device check) |
 | NimBLE pools, scan list, message queue, the app's saved screen (up to 1.3 MB in gray) | | PSRAM |
-| TRMNL's Wi-Fi + TLS (10 static RX buffers 16 KB, dynamic RX/TX, mbedTLS 16 KB in + 4 KB out internal) | fits as before | BLE is off then: only the static cost above applies |
+| Wi-Fi (10 static RX buffers 16 KB, dynamic RX/TX) | internal | internal |
+| TLS (mbedTLS record buffers, 16 KB in + 4 KB out, allocated per record; handshake state) | PSRAM | PSRAM (below) |
+
+### Memory for HTTPS
+
+| What | Rule |
+|---|---|
+| where mbedTLS allocates | PSRAM (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`), record buffers only while a record is in flight (`CONFIG_MBEDTLS_DYNAMIC_BUFFER`). Before (internal RAM: about 40 KB per handshake) every HTTPS request with the BLE keyboard on failed to open (out of memory) |
+| guard | `test/config/test_tls_memory.py`: mbedTLS and NimBLE pools in PSRAM, one BLE connection |
+| `http_request` out of memory | returns `APP_ENOMEM` (also `resp.status`) when the client or the TLS handshake could not allocate; an app says "not enough memory for the secure connection", not "no network". Other open failures (DNS, refused, certificate, timeout) stay `APP_ETIMEDOUT`; no Wi-Fi is `APP_ENONET`. Rules: `http_open_error.h`, test `test_http_open_error` |
 
 ## USB port roles
 
@@ -281,6 +290,7 @@ status: the switch can take the window of a touch event, and that touch then nev
 | on the simulated X, touch through the emulated IQS323: Install via Wi-Fi and Receive over USB end on a long press, a middle tap and a long press reach an app right after it started; no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
 | event log: wrap and bounded size, restart, damaged file, repeats, last lines that fit, write rate limit | `test/test_evlog_ring` | `pio test -e native -f test_evlog_ring` |
 | event log on the simulated X: `TAPP EVLOG` lists the app's start across a restart, `CLEAR` | `test/sim/test_evlog.py` | below |
+| `http_request` open failures: out of memory (TLS setup, handshake bignums, certificates, ESP_ERR_NO_MEM) is `APP_ENOMEM`, others `APP_ETIMEDOUT` | `test/test_http_open_error` | `pio test -e native -f test_http_open_error` |
 | no TRMNL sleep while an app or install screen runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
