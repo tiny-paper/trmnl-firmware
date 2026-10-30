@@ -37,8 +37,10 @@ with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
 | Rule | How |
 |---|---|
 | Off by default | only `webshare_start(APP_WEBSHARE_AP or APP_WEBSHARE_HOME)` from the app; off when the app ends (runner), after 15 min without a request, after 15 wrong codes |
+| Default (`APP_WEBSHARE_AUTO`) | the saved home network, so the phone stays on its Wi-Fi; only if none is reachable the access point. `status.mode` says which. `APP_WEBSHARE_HOME` alone does not fall back (`APP_ENONET`) |
+| One-time link | `status.url` ("Online at ...") and `status.login_url` (`/?t=<128-bit token>`, for a QR): one login, 15 min, gone at stop, a wrong token counts like a wrong code, never logged (test reads the source). Typing the code works too. Changed in place: API 2 is not released |
 | AP mode | open network "Writer", `http://4.3.2.1`, phones open it as a captive portal |
-| Home mode | saved 2.4 GHz network, `http://writer.local` (mDNS) and the IP in `status.ip` |
+| Home network | saved 2.4 GHz network, `http://writer.local` (mDNS) and the IP in `status.ip` |
 | Code | 6 digits in `status.code`, the app shows it on the X's screen; no API works without a session from `POST /api/login`; 5 wrong codes lock 60 s (doubling), 15 stop the page |
 | Changes | need the `X-Writer` header (another site's form cannot send it) and the session cookie (SameSite=Strict) |
 | No silent overwrite | upload to `.webshare.tmp` in the target folder, renamed when all announced bytes arrived and the file on disk has that size; same bytes: nothing written; other bytes: saved as `title (web N).md`, the old file untouched; rename onto an existing name is refused |
@@ -113,7 +115,9 @@ Needs an app that calls `webshare_start` and shows `status.code`. Take a phone a
 
 | Step | Look for |
 |---|---|
-| Start AP mode | network "Writer" appears, phone opens the page by itself (captive portal; if not, `http://4.3.2.1`), X shows the code |
+| Start with Wi-Fi on (default) | `status.mode` home; phone on its own Wi-Fi opens `status.url`; the QR link logs in at once, the same link a second time asks for the code |
+| Start with the router off | falls back to "Writer", `status.mode` AP |
+| Start AP mode (forced) | network "Writer" appears, phone opens the page by itself (captive portal; if not, `http://4.3.2.1`), X shows the code |
 | Open the page, type a wrong code 5 times | "too many wrong codes", the right code is refused for a minute |
 | Right code | list of documents and fonts, free space |
 | Upload a .md to a folder, then the same again, then a changed copy | "saved", "already on the X", "kept both, saved as ... (web 1)"; the writer shows both files; the first is unchanged |
