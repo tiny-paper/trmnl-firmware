@@ -182,30 +182,17 @@ static void open_keyboard(hid_host_device_handle_t h) {
   Log_info("USB keys: keyboard connected");
 }
 
-static void post_events(const app_event_t *ev, int n) {
-  for (int i = 0; i < n; i++) {
-    if (app_host.events) xQueueSend(app_host.events, &ev[i], 0);
-  }
-}
-
-static void post_keyboard_event(void) {
-  app_event_t ev = {};
-  ev.type = APP_EVENT_KEYBOARD;
-  ev.key = (uint16_t)keyboards_status();
-  post_events(&ev, 1);
-}
-
 static void drain_reports(void) {
   kbd_report_t r;
   app_event_t ev[HID_KEYS_MAX_EVENTS];
   while (xQueueReceive(report_q, &r, 0) == pdTRUE) {
     if (r.gone) {
-      post_events(ev, hid_keys_release_all(&keys, ev)); // no key stays down
+      keyboards_post(ev, hid_keys_release_all(&keys, ev)); // no key stays down
       Log_info("USB keys: keyboard removed");
-      post_keyboard_event();
+      keyboards_post_change();
       continue;
     }
-    post_events(ev, hid_keys_report(&keys, r.data, r.len, ev));
+    keyboards_post(ev, hid_keys_report(&keys, r.data, r.len, ev));
   }
 }
 
@@ -226,7 +213,7 @@ static void port_loop(void *arg) {
     drain_reports();
     if (keyboard_open != was_open) {
       was_open = keyboard_open;
-      if (was_open) post_keyboard_event();
+      if (was_open) keyboards_post_change();
     }
     usb_port_input_t in = {wanted && !stop_task, read_power(), keyboard_open, usb_port_role() == USB_ROLE_DRIVE};
     usb_port_mode_t mode = usb_port_step(&port, millis(), &in);
@@ -252,9 +239,9 @@ static void port_loop(void *arg) {
       drain_reports();
       if (was_open) {
         app_event_t ev[HID_KEYS_MAX_EVENTS];
-        post_events(ev, hid_keys_release_all(&keys, ev));
+        keyboards_post(ev, hid_keys_release_all(&keys, ev));
         was_open = false;
-        post_keyboard_event();
+        keyboards_post_change();
       }
       applied = USB_PORT_DEVICE;
     }

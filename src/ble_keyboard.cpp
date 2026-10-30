@@ -322,19 +322,6 @@ static void host_task(void *arg) {
 
 // ---- carrying out the rules' actions (the task) ----
 
-static void post_app(const app_event_t *ev, int n) {
-  for (int i = 0; i < n; i++) {
-    if (app_host.events) xQueueSend(app_host.events, &ev[i], 0);
-  }
-}
-
-static void post_keyboard_event(void) {
-  app_event_t ev = {};
-  ev.type = APP_EVENT_KEYBOARD;
-  ev.key = (uint16_t)keyboards_status();
-  post_app(&ev, 1);
-}
-
 static void scan(bool on) {
   if (!synced || on == scanning) return;
   if (on) {
@@ -385,11 +372,11 @@ static void apply(uint32_t act) {
   if (act & BLE_ACT_SAVE_BOND) save_bond();
   if (act & BLE_ACT_RELEASE) {
     app_event_t ev[HID_KEYS_MAX_EVENTS];
-    post_app(ev, hid_keys_release_all(&keys, ev));
+    keyboards_post(ev, hid_keys_release_all(&keys, ev));
     if (connected) {
       connected = false;
       Log_info("BLE keys: keyboard gone");
-      post_keyboard_event();
+      keyboards_post_change();
     }
   }
   if (act & BLE_ACT_DISCONNECT) drop_link();
@@ -441,7 +428,7 @@ static void hogp_do(const hogp_act_t &a) {
     apply(ble_pair_connected(&pair));
     screen_up = false;
     ble_screen_release(); // also after a reconnect that showed nothing: a no-op then
-    post_keyboard_event();
+    keyboards_post_change();
     return;
   case HOGP_DO_FAIL:
     Log_info("BLE keys: %s failed (%d)", pair.target.name, a.why);
@@ -541,7 +528,7 @@ static void handle(const msg_t &m) {
     uint8_t boot[HID_KEYS_REPORT];
     if (!ours || !hogp_report(&hogp, m.a, m.data, m.len, boot)) break;
     app_event_t ev[HID_KEYS_MAX_EVENTS];
-    post_app(ev, hid_keys_report(&keys, boot, sizeof(boot), ev));
+    keyboards_post(ev, hid_keys_report(&keys, boot, sizeof(boot), ev));
     break;
   }
   case M_TAP:

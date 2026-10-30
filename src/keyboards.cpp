@@ -3,6 +3,7 @@
 
 #include <app_api.h>
 
+#include "app_host.h"
 #include "ble_keyboard.h"
 #include "keyboards.h"
 
@@ -19,6 +20,19 @@ int keyboards_enable(uint32_t sources) {
 
 uint32_t keyboards_status(void) {
   return (usb_keyboard_connected() ? APP_KBD_USB : 0) | (ble_keyboard_connected() ? APP_KBD_BLE : 0);
+}
+
+void keyboards_post(const app_event_t *ev, int n) {
+  for (int i = 0; i < n; i++) {
+    if (app_host.events) xQueueSend(app_host.events, &ev[i], 0);
+  }
+}
+
+void keyboards_post_change(void) {
+  app_event_t ev = {};
+  ev.type = APP_EVENT_KEYBOARD;
+  ev.key = (uint16_t)keyboards_status();
+  keyboards_post(&ev, 1);
 }
 
 void keyboards_end(void) {
