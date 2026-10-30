@@ -50,21 +50,29 @@ An app includes only `app_api.h` (and `apps/common/draw.h` for text and boxes). 
 
 ## Copy an app to the X
 
-The apps live in the LittleFS partition (`0x620000`). Writing it replaces the cached screens (TRMNL downloads them
-again); Wi-Fi and settings stay in NVS.
+Over the USB cable, into `/apps/<name>.elf` only: TRMNL's own files (cached screens, the modem file) stay. Never
+flash a file system image to a real X (it replaces those files); `test/sim/flashfs.py` makes one for the simulator only.
 
-| Step | Command |
+| Step | Do |
 |---|---|
-| image | `python3 apps/pack.py .pio/build/TRMNL_X/littlefs.bin littlefs-apps.bin apps/build/hello.elf` (venv with `littlefs-python`) |
-| flash | `esptool.py --chip esp32s3 write_flash 0x620000 littlefs-apps.bin` |
+| on the X | menu, Apps..., Receive over USB... (shows "Waiting for an app on the USB cable"; any tap or 2 min idle ends it) |
+| on the computer | `python3 apps/upload.py /dev/ttyACM0 apps/build/hello.elf` (venv with `pyserial`); prints `sent hello.elf` |
+
+| Protocol (`lib/trmnl/include/app_upload.h`) | |
+|---|---|
+| header | `TAPP PUT <name>.elf <size> <crc32 hex>`; refused: bad name, 0 bytes, over 2 MB, more than the free space less 16 KB |
+| data | 64-byte blocks, each answered `TAPP ACK <bytes>` (one USB packet; the serial RX buffer drops what does not fit) |
+| end | `TAPP OK <name>.elf`, or `TAPP ERR short` (no byte for 5 s) / `bad crc` / `write failed`: the old app stays |
+| writes | `/apps/.upload.tmp`, renamed over the app only after size and CRC match; a leftover one is removed at the next start |
 
 ## Tests
 
 | What | Where | Run |
 |---|---|---|
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
-| paths, resume state, serial keys | `test/test_app_path`, `test_app_resume`, `test_app_keys` | `pio test -e native -f test_app_*` |
-| on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim` (pytest) | below |
+| paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
+| on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
+| on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
 `$TRMNLSIM_DIR`), then `python3 -m venv .venv && .venv/bin/pip install pytest littlefs-python` and
@@ -77,11 +85,13 @@ framebuffer (1-bit and gray), partial refresh, touch timing on the real IQS323, 
 
 | Step | Look for |
 |---|---|
-| Flash the TRMNL_X build of this branch, then `littlefs-apps.bin` with `hello.elf` (above) | device boots into TRMNL as before |
+| Flash the TRMNL_X build of this branch (app only, `pio run -e TRMNL_X -t upload`; no file system image) | device boots into TRMNL as before, its cached screens still there |
 | Middle tap, the menu | an "Apps..." item between "Touchbar Tutorial" and "Special..." |
+| Apps..., Receive over USB..., then `apps/upload.py <port> apps/build/hello.elf` | `sent hello.elf`; log `Apps: received /apps/hello.elf`; a tap ends it, hello is listed |
+| Pull the cable during an upload of a big file, plug it back, start Receive again | log `upload ... failed: short`; the old app (if any) still starts |
 | Apps..., hello | "Hello from an app", "Run 1, screen 1872x1404", a box, the long press hint; serial log `Apps: Hello (/apps/hello.elf) running` |
 | Tap left, middle, right | one line per tap in the box ("touch left tap", ...), drawn without a full flash |
 | Type in a serial terminal (115200) | "key down 'a' code 512 mods 0" lines |
 | Hold the touch bar 2 s | back to the TRMNL screen; log `Apps: hello ended with 0` |
 | Start hello, wait 10 s, press reset | hello comes back ("Run 2"); log `Apps: resuming /apps/hello.elf` |
-| Flash an image with `test/sim/apps/crash` (build with `OUT=apps/build apps/build.sh test/sim/apps/crash`), start it | one panic and restart, then TRMNL; not started again |
+| Send `test/sim/apps/crash` (build with `OUT=apps/build apps/build.sh test/sim/apps/crash`, then upload.py), start it | one panic and restart, then TRMNL; not started again |

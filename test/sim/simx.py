@@ -26,6 +26,7 @@ def free_port():
 
 class Sim:
     def __init__(self, image, elf, flash, tmp, mock_port, erase=False):
+        self.flash = flash
         self.control = free_port()
         self.portal = free_port()
         self.log_path = os.path.join(tmp, "sim-%d.log" % self.control)

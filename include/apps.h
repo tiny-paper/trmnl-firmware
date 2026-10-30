@@ -14,6 +14,10 @@
 // The apps in /apps, sorted by name: fills names (shown in the menu) and paths; returns how many
 int apps_list(char names[][32], char paths[][APPS_PATH_MAX], int max);
 
+// Receives apps over the USB serial port into /apps (app_upload.h, apps/upload.py) until `cancel`
+// returns true or no upload starts for 2 minutes; returns how many were received
+int apps_receive(bool (*cancel)(void));
+
 // Loads and runs the app at `path`, then goes back to TRMNL. Does not return: it sleeps, or
 // restarts when the app does not end within APP_EXIT_GRACE_MS of a long press.
 void apps_run(const char *path);

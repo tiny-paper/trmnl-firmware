@@ -265,7 +265,7 @@ enum main_menu_item_t {
   MAIN_MENU_NEXT_SCREEN,
   MAIN_MENU_PREVIOUS_SCREEN,
   MAIN_MENU_TUTORIAL, // only with a control scheme that has a tutorial
-  MAIN_MENU_APPS,     // only with apps in /apps
+  MAIN_MENU_APPS,     // its apps, and receiving one over USB
   MAIN_MENU_SPECIAL,
   MAIN_MENU_SETTINGS,
   MAIN_MENU_CLOSE,
@@ -541,11 +541,27 @@ enum menu_outcome_t {
   MENU_OUTCOME_CLOSE, // Close on the main menu, or a timeout on any screen
 };
 
-// The Apps submenu: the apps in /apps (apps.h), then Back
+// The Apps submenu: the apps in /apps (apps.h), Receive over USB, then Back
 static char app_names[APPS_MAX][32];
 static char app_paths[APPS_MAX][APPS_PATH_MAX];
 static int app_count = 0;
 static int app_chosen = -1;
+
+static bool receive_cancel(void) { return menu_controls->read() != menu_input_t::NONE; }
+
+// The Receive over USB screen: waits for apps/upload.py until a tap or 2 minutes without an upload
+static void receive_apps(void) {
+  static const char *const labels[] = {"Stop"};
+  static const char *const body[] = {
+      "Waiting for an app on the USB cable.",
+      "On the computer: python3 apps/upload.py <port> <app>.elf",
+      "Any tap stops.",
+  };
+  menu_view_t view = {labels, 1, 0, body, 3, menu_controls->hints, false};
+  menu_show_screen(view, true);
+  apps_receive(receive_cancel);
+  app_count = apps_list(app_names, app_paths, APPS_MAX);
+}
 
 // Runs the menu screens until one ends the menu. Sets *function for MENU_OUTCOME_SPECIAL_FUNCTION,
 // app_chosen for MENU_OUTCOME_APP.
@@ -561,7 +577,6 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
   int main_count = 0;
   for (int i = 0; i < MAIN_MENU_COUNT; i++) {
     if (i == MAIN_MENU_TUTORIAL && !menu_controls->tutorial) continue;
-    if (i == MAIN_MENU_APPS && app_count == 0) continue;
     main_labels[main_count] = i == MAIN_MENU_TUTORIAL ? menu_controls->tutorial->item : main_menu_labels[i];
     main_items[main_count++] = (main_menu_item_t)i;
   }
@@ -596,16 +611,21 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       break;
     }
     case MENU_SCREEN_APPS: {
-      const char *labels[APPS_MAX + 1];
+      const char *labels[APPS_MAX + 2];
       for (int i = 0; i < app_count; i++) {
         labels[i] = app_names[i];
       }
-      labels[app_count] = "Back";
-      int item = run_menu_screen(labels, app_count + 1, true);
+      labels[app_count] = "Receive over USB...";
+      labels[app_count + 1] = "Back";
+      int item = run_menu_screen(labels, app_count + 2, true);
       if (item < 0) return MENU_OUTCOME_CLOSE;
-      if (item == app_count) { // Back
+      if (item == app_count + 1) { // Back
         screen = MENU_SCREEN_MAIN;
         break;
+      }
+      if (item == app_count) {
+        receive_apps();
+        break; // the Apps submenu again, with what came
       }
       app_chosen = item;
       return MENU_OUTCOME_APP;

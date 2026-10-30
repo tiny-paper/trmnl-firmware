@@ -63,8 +63,13 @@ def start_app(sim, apps, name):
     must_log(sim, r"menu_show_screen end", start)
     choose(sim, MAIN_MENU, "Apps...")
     must_log(sim, r"menu_show_screen end", start)
-    choose(sim, sorted(apps) + ["Back"], name)
+    choose(sim, apps_menu(apps), name)
     return start
+
+
+def apps_menu(apps):
+    """The Apps submenu's items with `apps` in /apps"""
+    return sorted(apps) + ["Receive over USB...", "Back"]
 
 
 def long_press(sim):
