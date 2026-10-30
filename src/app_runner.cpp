@@ -247,10 +247,17 @@ void apps_run(const char *path) {
   app_host.events = xQueueCreate(APP_HOST_EVENT_QUEUE, sizeof(app_event_t));
   app_host.done = xSemaphoreCreateBinary();
   app_entry = (app_entry_t)elf.entry;
-  memset(touch, 0, sizeof(touch));
   app_key_decoder_init(&keys);
+  Serial.begin(115200); // the keys of a terminal on the USB serial port
   iqs323_task_set_streaming_mode(true); // fresh touch data while the app runs
   iqs323_task_take_touch_starts();      // the tap that started it
+  // A touch still down (the tap that chose the app, or the one that woke the device) is not the app's
+  touchbar_snapshot_t snap;
+  iqs323_task_read_snapshot(&snap);
+  const bool down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
+  for (int ch = 0; ch < 3; ch++) {
+    touch[ch] = {down[ch], millis(), down[ch]};
+  }
 
   TaskHandle_t task = nullptr;
   if (!app_host.events || !app_host.done ||
