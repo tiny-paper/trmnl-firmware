@@ -2,6 +2,7 @@
 the file system stays, a broken or cut-off upload keeps the old app and leaves no temporary file."""
 import os
 import re
+import zlib
 import sys
 
 import littlefs
@@ -88,9 +89,9 @@ def test_an_app_sent_over_usb_runs_and_the_rest_of_the_file_system_stays(device,
     sim = device({"/keep/screen.bin": KEEP})
     port = receive_mode(sim, [])
     upload.upload("hello.elf", elfs["hello"], port.write, port.read_reply)
-    big = os.urandom(20000)  # many blocks
+    big = elfs["keys"]  # many blocks
     upload.upload("big.elf", big, port.write, port.read_reply)
-    must_log(sim, r"Apps: received /apps/big.elf, 20000 bytes", 0)
+    must_log(sim, r"Apps: received /apps/big.elf, %d bytes" % len(big), 0)
     stop_receiving(sim)
     # the Apps submenu lists it now: start it from there
     choose(sim, apps_menu(["big", "hello"]), "hello")
@@ -121,6 +122,14 @@ def test_a_bad_or_cut_off_upload_keeps_the_old_app(device, elfs):
     port.write(other[:upload.BLOCK])
     assert port.read_reply(10) == "TAPP ACK %d" % upload.BLOCK
     assert port.read_reply(30) == "TAPP ERR short"
+    # not an app: the same ELF check as Install via Wi-Fi (app_install_commit) refuses it after the data
+    port.write(b"TAPP PUT hello.elf %d %08x\n" % (len(other), zlib.crc32(other)))
+    assert port.read_reply(10) == "TAPP READY"
+    for i in range(0, len(other), upload.BLOCK):
+        port.write(other[i:i + upload.BLOCK])
+        reply = port.read_reply(10) or ""
+        assert re.match(r"TAPP (ACK \d+|ERR refused: not an app.*)$", reply), reply
+    assert reply.startswith("TAPP ERR refused: not an app"), reply
     # refused headers
     for header, why in [(b"TAPP PUT ../x.elf 10 0", "bad name"), (b"TAPP PUT hello.elf 0 0", "empty"),
                         (b"TAPP PUT hello.elf 2097153 0", "too big"), (b"TAPP PUT hello.elf", "bad name"),

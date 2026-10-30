@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app_path.h"
+#include <app_elf_check.h>
 #include <apps_config.h>
 
 static void paths(const char *name, char *elf, char *bak, size_t len) {
@@ -15,6 +16,43 @@ static bool exists(const ws_fs_t *fs, const char *path) {
   uint32_t size;
   bool dir;
   return fs->stat(fs->ctx, path, &size, &dir) == 0;
+}
+
+app_install_result_t app_install_commit(const ws_fs_t *fs, const char *tmp, const char *path, uint32_t size,
+                                        uint8_t *buf, size_t buf_cap, size_t free_mem, char *reason,
+                                        size_t reason_len) {
+  if (reason_len) reason[0] = '\0';
+  app_install_result_t rc = APP_INSTALL_OK;
+  if (size > buf_cap || !buf) rc = APP_INSTALL_NO_SPACE;
+  size_t have = 0;
+  if (rc == APP_INSTALL_OK) {
+    void *f = fs->open(fs->ctx, tmp, false);
+    int n = 0;
+    while (f && have < size && (n = fs->read(fs->ctx, f, buf + have, size - have)) > 0) have += (size_t)n;
+    if (f) fs->close(fs->ctx, f);
+    if (!f || have != size) rc = APP_INSTALL_IO;
+  }
+  if (rc == APP_INSTALL_OK) {
+    app_info_t info;
+    app_elf_result_t check = app_elf_check(buf, have, free_mem, &info);
+    if (check != APP_ELF_OK) {
+      snprintf(reason, reason_len, "%s", app_elf_result_str(check));
+      rc = APP_INSTALL_REFUSED;
+    }
+  }
+  char bak[80];
+  snprintf(bak, sizeof(bak), "%s.bak", path);
+  // The older version stays as .bak; if there already is one (an install not started yet) that one is the last
+  // version known to work and stays
+  if (rc == APP_INSTALL_OK && exists(fs, path) && !exists(fs, bak) && fs->rename(fs->ctx, path, bak) < 0) {
+    rc = APP_INSTALL_IO;
+  }
+  if (rc == APP_INSTALL_OK && fs->rename(fs->ctx, tmp, path) < 0) {
+    if (!exists(fs, path) && exists(fs, bak)) fs->rename(fs->ctx, bak, path); // put the old one back
+    rc = APP_INSTALL_IO;
+  }
+  if (rc != APP_INSTALL_OK) fs->remove(fs->ctx, tmp);
+  return rc;
 }
 
 bool app_install_name_ok(const char *file, char *name, size_t name_len) {

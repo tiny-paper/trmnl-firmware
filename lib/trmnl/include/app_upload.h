@@ -31,6 +31,7 @@ typedef enum {
   APP_UPLOAD_SHORT, // fewer bytes than announced came before the idle timeout
   APP_UPLOAD_BAD_CRC,
   APP_UPLOAD_WRITE_FAILED,
+  APP_UPLOAD_REFUSED, // app_install_commit's ELF check refused it (the reason follows)
 } app_upload_result_t;
 
 typedef struct {

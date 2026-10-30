@@ -5,12 +5,16 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <app_install.h>
 #include <app_upload.h>
+#include <esp_heap_caps.h>
 #include <trmnl_crc32.h>
 #include <apps.h>
 #include <trmnl_log.h>
 
 #include <algorithm>
+
+#include "webshare.h" // webshare_fs_root
 
 #define RECEIVE_IDLE_MS (2u * 60u * 1000u) // no upload started for this long: back to the menu
 
@@ -55,8 +59,21 @@ static bool read_line(char *line, size_t cap, uint32_t idle_ms, bool (*cancel)(v
   }
 }
 
-// The data of one upload into APP_UPLOAD_TMP, then renamed over the app
-static app_upload_result_t receive_data(const app_upload_header_t &h) {
+// The complete upload in APP_UPLOAD_TMP becomes the app the same way as an Install via Wi-Fi: app_install_commit
+static app_upload_result_t install(const app_upload_header_t &h, char *reason, size_t reason_len) {
+  uint8_t *buf = (uint8_t *)heap_caps_malloc(h.size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  size_t free_mem = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  app_install_result_t rc = app_install_commit(webshare_fs_root(), APP_UPLOAD_TMP + 1, h.path + 1, h.size, buf,
+                                               buf ? h.size : 0, free_mem, reason, reason_len);
+  heap_caps_free(buf);
+  if (rc == APP_INSTALL_OK) return APP_UPLOAD_OK;
+  return rc == APP_INSTALL_REFUSED ? APP_UPLOAD_REFUSED : rc == APP_INSTALL_NO_SPACE ? APP_UPLOAD_NO_SPACE
+                                                                                      : APP_UPLOAD_WRITE_FAILED;
+}
+
+// The data of one upload into APP_UPLOAD_TMP, then installed. `reason`: why the ELF check refused it
+static app_upload_result_t receive_data(const app_upload_header_t &h, char *reason, size_t reason_len) {
+  reason[0] = '\0';
   LittleFS.remove(APP_UPLOAD_TMP);
   File f = LittleFS.open(APP_UPLOAD_TMP, "w");
   if (!f) return APP_UPLOAD_WRITE_FAILED;
@@ -85,10 +102,10 @@ static app_upload_result_t receive_data(const app_upload_header_t &h) {
   }
   f.close();
   app_upload_result_t r = write_failed ? APP_UPLOAD_WRITE_FAILED : app_upload_check(&h, got, crc);
-  if (r == APP_UPLOAD_OK && !LittleFS.rename(APP_UPLOAD_TMP, h.path)) r = APP_UPLOAD_WRITE_FAILED;
+  if (r == APP_UPLOAD_OK) r = install(h, reason, reason_len);
   if (r != APP_UPLOAD_OK) {
     LittleFS.remove(APP_UPLOAD_TMP);
-    Log_error("Apps: upload of %s failed: %s (%lu of %lu bytes)", h.path, app_upload_result_str(r),
+    Log_error("Apps: upload of %s failed: %s %s (%lu of %lu bytes)", h.path, app_upload_result_str(r), reason,
               (unsigned long)got, (unsigned long)h.size);
   }
   return r;
@@ -106,10 +123,11 @@ int apps_receive(bool (*cancel)(void)) {
     app_upload_header_t h;
     uint64_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
     app_upload_result_t r = app_upload_parse(line, used < total ? total - used : 0, &h);
-    if (r == APP_UPLOAD_OK) r = receive_data(h);
+    char reason[64] = "";
+    if (r == APP_UPLOAD_OK) r = receive_data(h, reason, sizeof(reason));
     if (r != APP_UPLOAD_OK) {
-      Log_info("Apps: upload refused: %s", app_upload_result_str(r));
-      reply("ERR %s", app_upload_result_str(r));
+      Log_info("Apps: upload refused: %s%s%s", app_upload_result_str(r), reason[0] ? ": " : "", reason);
+      reply("ERR %s%s%s", app_upload_result_str(r), reason[0] ? ": " : "", reason);
       continue;
     }
     received++;

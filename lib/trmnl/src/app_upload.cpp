@@ -57,6 +57,7 @@ const char *app_upload_result_str(app_upload_result_t r) {
   case APP_UPLOAD_SHORT: return "short";
   case APP_UPLOAD_BAD_CRC: return "bad crc";
   case APP_UPLOAD_WRITE_FAILED: return "write failed";
+  case APP_UPLOAD_REFUSED: return "refused";
   }
   return "?";
 }

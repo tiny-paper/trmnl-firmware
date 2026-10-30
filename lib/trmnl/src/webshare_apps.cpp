@@ -25,40 +25,11 @@ ws_result_t ws_apps_end(ws_upload_t *u, const ws_fs_t *fs, bool exact, uint8_t *
   reason[0] = '\0';
   ws_result_t rc = ws_upload_close(u, exact);
   if (rc != WS_OK) return rc;
-  if (u->got > buf_cap) {
-    ws_upload_abort(u);
-    return WS_E_NO_SPACE;
-  }
-  void *f = fs->open(fs->ctx, u->tmp, false);
-  size_t have = 0;
-  int n = 0;
-  while (f && have < u->got && (n = fs->read(fs->ctx, f, buf + have, u->got - have)) > 0) have += (size_t)n;
-  if (f) fs->close(fs->ctx, f);
-  if (!f || have != u->got) {
-    ws_upload_abort(u);
-    return WS_E_IO;
-  }
-  app_info_t info;
-  app_elf_result_t check = app_elf_check(buf, have, free_mem, &info);
-  if (check != APP_ELF_OK) {
-    snprintf(reason, reason_len, "%s", app_elf_result_str(check));
-    ws_upload_abort(u);
-    return WS_E_REFUSED;
-  }
-  char bak[WS_PATH_MAX + 8];
-  snprintf(bak, sizeof(bak), "%s.bak", u->path);
-  // The older version stays as .bak; if there already is one (an install not started yet) that one is the last
-  // version known to work and stays
-  if (exists(fs, u->path)) {
-    if (!exists(fs, bak) && fs->rename(fs->ctx, u->path, bak) < 0) {
-      ws_upload_abort(u);
-      return WS_E_IO;
-    }
-  }
-  if (fs->rename(fs->ctx, u->tmp, u->path) < 0) {
-    if (!exists(fs, u->path) && exists(fs, bak)) fs->rename(fs->ctx, bak, u->path); // put the old one back
-    ws_upload_abort(u);
-    return WS_E_IO;
+  switch (app_install_commit(fs, u->tmp, u->path, u->got, buf, buf_cap, free_mem, reason, reason_len)) {
+  case APP_INSTALL_OK: break;
+  case APP_INSTALL_REFUSED: ws_upload_abort(u); return WS_E_REFUSED;
+  case APP_INSTALL_NO_SPACE: ws_upload_abort(u); return WS_E_NO_SPACE;
+  default: ws_upload_abort(u); return WS_E_IO;
   }
   snprintf(installed, installed_len, "%s", strrchr(u->path, '/') + 1);
   return WS_OK;
