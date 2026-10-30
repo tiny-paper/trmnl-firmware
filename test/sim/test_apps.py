@@ -167,6 +167,9 @@ def test_a_running_app_is_resumed_after_a_restart(device, elfs):
     sim = device({"/apps/hello.elf": elfs["hello"]})
     start = start_app(sim, ["hello"], "hello")
     must_log(sim, r"app hello: hello: run 1", start)
+    t = since(sim)
+    sim.api("POST", "/serial", b"a")  # input reached it: the user could leave it, so it may be resumed
+    must_log(sim, r"hello: key down 'a'", t)
     r = sim.wait(30, console=r"never", since=start)  # let it run past APP_RESUME_STARTED_MS (5 s)
     assert not r.get("ok")
     assert sim.prefs().get("app_resume") == "1", sim.prefs()

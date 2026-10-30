@@ -176,6 +176,8 @@ Code: `src/webshare_install.cpp` (routes, page in `webshare_install_page.h`), `l
 | long press on the touch bar | `APP_EVENT_EXIT`; after `APP_EXIT_GRACE_MS` (2 s) the device restarts into TRMNL |
 | app ran 5 s, then the device restarted | resumed (path in NVS `app_last`, flag `app_resume`) |
 | app crashes while starting, or any panic or watchdog reset | not resumed: the flag is cleared before each start and set only after 5 s |
+| no touch or key reached the app before the restart (NVS `app_input`) | not resumed: "App stopped ... not resumed" on screen, then TRMNL (a dead touch bar must not trap the user) |
+| `TAPP NORESUME` + newline on the serial port (115200) while an app runs | resume cleared, restart into TRMNL |
 | stack over `APP_MAX_STACK` (64 KB, internal RAM) | error screen |
 
 ## USB drive (API version 2)
@@ -230,6 +232,13 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | end | `TAPP OK <name>.elf`, or `TAPP ERR short` (no byte for 5 s) / `bad crc` / `write failed`: the old app stays |
 | writes | `/apps/.upload.tmp`; after size and CRC match, `app_install_commit` (the one install path, shared with Install via Wi-Fi): the loader's ELF check (`TAPP ERR refused: <reason>`), the old app kept as `.bak` until the new one started, then the rename. A leftover temp file is removed at the next start |
 
+## Crash in an app
+
+The runner logs `Apps: <name> entry at 0x...`. With the panic's `Backtrace:` line in the same log,
+`tools/app_addr2line.py <app.elf> <log>` names the app's frames. Build that ELF with the app's normal flags but
+without `-Wl,--strip-all` and the final strip (the code must be byte for byte the same; `-g` changes it).
+Touch input in an app or firmware screen is logged as `Touch: chN down / long press / up after N ms`.
+
 ## Tests
 
 | What | Where | Run |
@@ -241,6 +250,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | configuration: header up to date, every key required, no configured value left in the sources | `test/config` | `.venv/bin/pytest test/config` |
 | Bluetooth keyboard: pairing and reconnect rules; security before discovery, report and boot protocol, encryption failures (key missing, wrong passkey, passkey timeout), step timeouts, bond deleted on the keyboard side; report maps (report IDs, bitmap, rollover, cut-off and random maps) | `test/test_ble_pair`, `test_ble_hogp`, `test_hid_report_map` (the sim has no Bluetooth) | `pio test -e native -f test_ble_pair -f test_ble_hogp -f test_hid_report_map` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
+| on the simulated X: Install via Wi-Fi ends on a long press, no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
 | USB drive: FAT image (damage, random flips, mtools/dosfstools interop), names, conflicts, full disk, power loss at every write, when a showing takes changes | `test/test_drive_*` | `pio test -e native -f 'test_drive_*'` |

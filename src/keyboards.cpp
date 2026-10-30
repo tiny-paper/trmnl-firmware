@@ -24,7 +24,9 @@ uint32_t keyboards_status(void) {
 
 void keyboards_post(const app_event_t *ev, int n) {
   for (int i = 0; i < n; i++) {
-    if (app_host.events) xQueueSend(app_host.events, &ev[i], 0);
+    if (!app_host.events) continue;
+    if (ev[i].type != APP_EVENT_KEYBOARD) app_host.got_input = true;
+    xQueueSend(app_host.events, &ev[i], 0);
   }
 }
 

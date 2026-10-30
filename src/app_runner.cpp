@@ -108,6 +108,8 @@ static app_key_decoder_t keys;
 static uint32_t last_key_byte;
 
 static void post(const app_event_t &ev) {
+  if (!app_host.events) return; // a firmware screen (Install via Wi-Fi): no app to take it
+  app_host.got_input = true;
   if (xQueueSend(app_host.events, &ev, 0) != pdTRUE) Log_info("Apps: event queue full, event dropped");
 }
 
@@ -131,7 +133,11 @@ static bool pump_touch(void) {
   for (int ch = 0; ch < 3; ch++) {
     app_touch_t &t = touch[ch];
     bool started = starts & (1 << ch);
-    if (!t.down && (now_down[ch] || started)) {
+    // A new touch start always begins a new touch: the touch held at touch_reset (the tap that chose the app or
+    // screen) may never show its release in the snapshot, and a stale "down" swallowed every later press: no tap,
+    // no long press (device report: Install via Wi-Fi and apps could not be left)
+    if (started || (!t.down && now_down[ch])) {
+      Log_info("Touch: ch%d down%s%s", ch, now_down[ch] ? "" : " (start only)", t.down ? ", the last one's release missed" : "");
       t = {true, now, false};
     }
     if (!t.down) continue;
@@ -139,10 +145,12 @@ static bool pump_touch(void) {
       if (!t.long_press && now - t.since >= APP_LONG_PRESS_MS) {
         t.long_press = true;
         long_press = true;
+        Log_info("Touch: ch%d long press", ch);
       }
       continue;
     }
     // released (or a tap too short for the snapshot to show it down)
+    Log_info("Touch: ch%d up after %lu ms%s", ch, (unsigned long)(now - t.since), t.long_press ? "" : ": tap");
     if (!t.long_press) post_tap(ch);
     t.down = false;
   }
@@ -159,6 +167,32 @@ static void touch_reset(void) {
   }
 }
 
+// "TAPP NORESUME" + newline on the serial port while an app runs: way out without the touch bar (docs/apps.md):
+// nothing is resumed after the restart that follows
+#define APP_CMD_NORESUME "TAPP NORESUME"
+static void serial_command(char c) {
+  static char line[24];
+  static size_t len;
+  if (c != '\n' && c != '\r') {
+    if (len + 1 >= sizeof(line)) { // keep the last bytes
+      memmove(line, line + 1, len - 1);
+      len--;
+    }
+    line[len++] = c;
+    return;
+  }
+  line[len] = '\0';
+  size_t n = len, c_len = sizeof(APP_CMD_NORESUME) - 1;
+  len = 0;
+  // the end of the line: keys typed before it (no newline in between) do not hide the command
+  if (n < c_len || strcmp(line + n - c_len, APP_CMD_NORESUME) != 0) return;
+  PreferencesPersistence persistence(preferences);
+  app_resume_ended(persistence);
+  Log_info("Apps: resume cleared by serial command - restarting into TRMNL");
+  delay(100);
+  ESP.restart();
+}
+
 // Reads the serial port: a terminal's keys
 static void pump_keys(void) {
   app_event_t ev;
@@ -166,6 +200,7 @@ static void pump_keys(void) {
     int b = Serial.read();
     if (b < 0) break;
     last_key_byte = millis();
+    serial_command((char)b);
     if (!app_key_feed(&keys, (uint8_t)b, &ev)) continue;
     post(ev);
     ev.type = APP_EVENT_KEY_UP;
@@ -227,13 +262,17 @@ static const char *app_load(const char *path, esp_elf_t *elf, app_info_t *info) 
 // within APP_EXIT_GRACE_MS.
 static bool app_supervise(PreferencesPersistence &persistence) {
   uint32_t started = millis();
-  bool marked_started = false;
+  bool marked_started = false, marked_input = false;
   uint32_t exit_asked = 0;
   while (xSemaphoreTake(app_host.done, pdMS_TO_TICKS(APP_POLL_MS)) != pdTRUE) {
     if (!marked_started && millis() - started >= APP_RESUME_STARTED_MS) {
       app_resume_started(persistence);
       app_install_started(persistence, webshare_fs_root(), app_host.name);
       marked_started = true;
+    }
+    if (!marked_input && app_host.got_input) {
+      app_resume_input(persistence); // a later restart may resume it: the user could reach it
+      marked_input = true;
     }
     usb_drive_service();
     if (!usb_drive_busy()) pump_keys(); // the serial port is off while the drive shows
@@ -294,6 +333,8 @@ void apps_run(const char *path) {
     app_error_and_sleep(app_host.name, with_restore_note(persistence, "not enough memory for its stack"));
   }
   Log_info("Apps: %s (%s) running, %lu bytes of stack", info.name, path, (unsigned long)info.stack_size);
+  // For tools/app_addr2line.py: the app's frames in a panic backtrace are entry - e_entry + their ELF address
+  Log_info("Apps: %s entry at 0x%08lx", app_host.name, (unsigned long)(uintptr_t)elf.entry);
 
   if (!app_supervise(persistence)) {
     // Its task may hold a lock or be anywhere in its code: only a restart cleans that up
@@ -380,6 +421,7 @@ void apps_install_session(void) {
   draw_qr(st.login_url, bbep.width() / 2 + x, y);
   bbep.fullUpdate(CLEAR_FAST, false);
 
+  Log_info("Apps: install screen shown, a long press stops it");
   iqs323_task_set_streaming_mode(true);
   iqs323_task_take_touch_starts();
   touch_reset();
@@ -403,9 +445,16 @@ void apps_resume_if_due(void) {
   bool crashed = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT ||
                  reason == ESP_RST_WDT;
   char path[APPS_PATH_MAX];
-  if (!app_resume_take(persistence, crashed, path, sizeof(path))) {
+  app_resume_t due = app_resume_take(persistence, crashed, path, sizeof(path));
+  if (due == APP_RESUME_NONE) {
     if (crashed) Log_info("Apps: reset by a crash (%d), no app resumed", reason);
     return;
+  }
+  if (due == APP_RESUME_NO_INPUT) {
+    char name[32];
+    if (!app_path_name(path, name, sizeof(name))) snprintf(name, sizeof(name), "%s", path);
+    Log_info("Apps: not resuming %s: no touch or key reached it before the restart", path);
+    app_error_and_sleep(name, "not resumed: no touch or key reached it before the restart");
   }
   Log_info("Apps: resuming %s", path);
   apps_run(path);
