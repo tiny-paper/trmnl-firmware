@@ -24,6 +24,7 @@
 
 #include "app_host.h"
 #include "keyboards.h"
+#include "usb_drive.h"
 
 #define APP_POLL_MS       20
 #define APP_LONG_PRESS_MS 1500
@@ -209,7 +210,8 @@ static bool app_supervise(PreferencesPersistence &persistence) {
       app_resume_started(persistence);
       marked_started = true;
     }
-    pump_keys();
+    usb_drive_service();
+    if (!usb_drive_busy()) pump_keys(); // the serial port is off while the drive shows
     if (pump_touch() && !exit_asked) {
       Log_info("Apps: long press - asking %s to exit", app_host.name);
       app_resume_ended(persistence);
@@ -219,6 +221,8 @@ static bool app_supervise(PreferencesPersistence &persistence) {
       post(ev);
       exit_asked = millis();
     }
+    // An import under way finishes first (a cut would be safe, the journal, but slower to redo)
+    if (usb_drive_importing()) exit_asked = exit_asked ? millis() : 0;
     if (exit_asked && millis() - exit_asked >= APP_EXIT_GRACE_MS) return false;
   }
   return true;
@@ -244,6 +248,7 @@ void apps_run(const char *path) {
   }
   if (!LittleFS.exists(APPS_DATA_DIR)) LittleFS.mkdir(APPS_DATA_DIR);
   if (!LittleFS.exists(app_host.dir)) LittleFS.mkdir(app_host.dir);
+  usb_drive_recover(app_host.dir); // an import a power cut interrupted: finished before the app reads
 
   app_host.events = xQueueCreate(APP_HOST_EVENT_QUEUE, sizeof(app_event_t));
   app_host.done = xSemaphoreCreateBinary();
@@ -277,6 +282,7 @@ void apps_run(const char *path) {
     delay(100);
     ESP.restart();
   }
+  usb_drive_end_for_exit(); // serial back, the computer's changes taken or not, before anything else
   int code = app_host.code;
   Log_info("Apps: %s ended with %d", app_host.name, code);
   keyboards_end(); // the USB port back in device mode before anything else
