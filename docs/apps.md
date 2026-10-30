@@ -47,6 +47,27 @@ with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
 | Limits | document 1 MB, font 4 MB, 32 KB of the file system stays free, one upload at a time, 30 s without data drops it, leftover temp files are removed at start |
 | Zip | stored, made while sending (no copy in memory), up to 128 documents; a read error cuts the connection |
 
+## Install via Wi-Fi (proof of concept)
+
+Menu > Apps > "Install via Wi-Fi" starts the same web server in an apps profile: home Wi-Fi first, else the access
+point "Writer". The X shows "Online at http://<ip>/" (or the network to join), the 6-digit code and a QR of the
+one-time login link; a long press, 15 min idle, or 15 wrong codes stop it. The page lists `/apps` (name, size, date)
+and takes `.elf` files only. No manifest, no permissions, no update URLs.
+
+| Rule | How |
+|---|---|
+| Only apps | the file name must be `<name>.elf` (letters, digits, `-`, `_`, 24 at most); size up to 2 MB |
+| Checked first | the file goes to `apps/.webshare.tmp`, then `app_elf_check` (the loader's own checker) runs over it; a refused file is deleted and the page shows the checker's reason; the installed app is not touched |
+| Replace | an app of the same name becomes `<name>.elf.bak` (an older `.bak` of a never started install stays: it is the last version that worked), then the temp file is renamed into place |
+| First start | `.bak` is deleted once the new app ran 5 s or returned 0. If it does not load, returns an error, or crashes while starting (`appi_start` in NVS, checked at the next wake), `.bak` is put back and the error screen / the page says so. A power loss between the two renames is repaired at the next wake |
+| Delete | the page's Delete removes `<name>.elf` and its `.bak` |
+| curl | `curl -F file=@writer.elf "http://<ip>/apps?t=<token>"` (the token is the one in the QR link, good for one call) or `curl -F file=@writer.elf "http://<ip>/apps?code=123456"` (as often as needed; 5 wrong codes lock it). The answer is `{"ok":true,"name":"writer.elf"}` or `{"error":"refused: file is truncated"}`. Without a credential: 401 |
+| Browser | cookie after the QR link or the code, plus the `X-Writer` header on changes |
+
+Code: `src/webshare_install.cpp` (routes, page in `webshare_install_page.h`), `lib/trmnl/src/webshare_apps.cpp`
+(checks, `.bak`), `lib/trmnl/src/app_install.cpp` (start bookkeeping, hooks in `src/app_runner.cpp`), QR by
+`lib/qrcodegen` (Nayuki, MIT, vendored unmodified).
+
 ## Rules the firmware enforces
 
 | Case | Result |
@@ -86,6 +107,7 @@ again); Wi-Fi and settings stay in NVS.
 |---|---|---|
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys | `test/test_app_path`, `test_app_resume`, `test_app_keys` | `pio test -e native -f test_app_*` |
+| Install via Wi-Fi: only .elf, checker refusal, size limit, .bak kept and restored on a failed or crashed first start, token/code needed | `test/test_webshare_apps` | `pio test -e native -f test_webshare_apps` |
 | Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim` (pytest) | below |
 
@@ -132,3 +154,20 @@ Needs an app that calls `webshare_start` and shows `status.code`. Take a phone a
 | Home mode with the home Wi-Fi | `writer.local` opens on PC and iPhone; on Android use the IP |
 | Android and iPhone captive pop-up | opens the page (iOS pop-up may block cookies: then open it in Safari via `http://4.3.2.1`) |
 | Heap while serving a 100-file zip | no reset; serial log shows no allocation errors |
+
+### Install via Wi-Fi (nothing of this ran on a device or in the simulator)
+
+| Step | Look for |
+|---|---|
+| Menu > Apps with no app in /apps | the entry "Install via Wi-Fi" is there (it used to hide the whole Apps item) |
+| Choose it with the home Wi-Fi on | screen: "Install apps via Wi-Fi", "Online at http://<ip>/", "Code: nnnnnn", a QR on the right, "Long press to stop" |
+| Scan the QR with a phone on the same Wi-Fi | the page opens already logged in and lists /apps; scanning the same QR a second time asks for the code |
+| Choose it with the router off | text asks to join "Writer" and open http://4.3.2.1/ |
+| Upload hello.elf | "installed"; Apps menu lists it; it starts |
+| Upload a text file renamed to .elf, a truncated hello.elf, a file named x.bin | refused with the checker's reason / name refused; /apps unchanged |
+| Upload a changed hello.elf over the old | page says "older version kept"; after the new one ran 5 s the note is gone (file gone in flash) |
+| Upload `test/sim/apps/crash` build under the name of a good app, start it | panic, restart, TRMNL; the good app is back (page shows the note) |
+| Upload an app returning 7 over a good one, start it | error screen says "the previous version was put back" |
+| `curl -F file=@hello.elf "http://<ip>/apps?code=<code>"` | `{"ok":true,...}`; without `?code`: 401; `?t=<token from the QR link>` works once |
+| Cut Wi-Fi during a big upload | no `.webshare.tmp` after the next start, installed app unchanged |
+| Long press | network gone, back to TRMNL |

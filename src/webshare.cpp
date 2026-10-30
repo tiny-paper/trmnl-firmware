@@ -17,11 +17,13 @@
 #include <webshare_auth.h>
 #include <webshare_mode.h>
 #include <webshare_store.h>
+#include <webshare_apps.h>
 #include <webshare_zip.h>
 
 #include <apps.h>
 
 #include "app_host.h"
+#include "webshare_internal.h"
 #include "webshare_page.h"
 
 #define WS_AP_SSID "Writer"
@@ -32,15 +34,15 @@
 
 // ---- LittleFS under the app's folder ----
 
-static char base_dir[48];
+static char base_dir[48]; // the writer's folder; the install profile uses the root (ctx "")
 
-static bool full(const char *rel, char *out, size_t len) {
-  return snprintf(out, len, "%s/%s", base_dir, rel) < (int)len;
+static bool full(void *ctx, const char *rel, char *out, size_t len) {
+  return snprintf(out, len, "%s/%s", (const char *)ctx, rel) < (int)len;
 }
 
-static int fs_stat(void *, const char *path, uint32_t *size, bool *is_dir) {
+static int fs_stat(void *c, const char *path, uint32_t *size, bool *is_dir) {
   char p[128];
-  if (!full(path, p, sizeof(p)) || !LittleFS.exists(p)) return -1;
+  if (!full(c, path, p, sizeof(p)) || !LittleFS.exists(p)) return -1;
   File f = LittleFS.open(p);
   if (!f) return -1;
   if (size) *size = (uint32_t)f.size();
@@ -49,9 +51,9 @@ static int fs_stat(void *, const char *path, uint32_t *size, bool *is_dir) {
   return 0;
 }
 
-static void *fs_open(void *, const char *path, bool write) {
+static void *fs_open(void *c, const char *path, bool write) {
   char p[128];
-  if (!full(path, p, sizeof(p))) return nullptr;
+  if (!full(c, path, p, sizeof(p))) return nullptr;
   File *f = new (std::nothrow) File(LittleFS.open(p, write ? FILE_WRITE : FILE_READ));
   if (!f || !*f || f->isDirectory()) {
     delete f;
@@ -73,24 +75,24 @@ static int fs_close(void *, void *file) {
   return 0; // the Arduino wrapper does not report errors; webshare_store checks the size on disk
 }
 
-static int fs_rename(void *, const char *from, const char *to) {
+static int fs_rename(void *c, const char *from, const char *to) {
   char a[128], b[128];
-  return full(from, a, sizeof(a)) && full(to, b, sizeof(b)) && LittleFS.rename(a, b) ? 0 : -1;
+  return full(c, from, a, sizeof(a)) && full(c, to, b, sizeof(b)) && LittleFS.rename(a, b) ? 0 : -1;
 }
 
-static int fs_remove(void *, const char *path) {
+static int fs_remove(void *c, const char *path) {
   char p[128];
-  return full(path, p, sizeof(p)) && LittleFS.remove(p) ? 0 : -1;
+  return full(c, path, p, sizeof(p)) && LittleFS.remove(p) ? 0 : -1;
 }
 
-static int fs_mkdir(void *, const char *path) {
+static int fs_mkdir(void *c, const char *path) {
   char p[128];
-  return full(path, p, sizeof(p)) && LittleFS.mkdir(p) ? 0 : -1;
+  return full(c, path, p, sizeof(p)) && LittleFS.mkdir(p) ? 0 : -1;
 }
 
-static int fs_list(void *, const char *dir, ws_list_cb_t cb, void *cx) {
+static int fs_list(void *c, const char *dir, ws_list_cb_t cb, void *cx) {
   char p[128];
-  if (!full(dir, p, sizeof(p))) return -1;
+  if (!full(c, dir, p, sizeof(p))) return -1;
   File root = LittleFS.open(p);
   if (!root || !root.isDirectory()) return -1;
   int n = 0;
@@ -109,44 +111,41 @@ static int fs_list(void *, const char *dir, ws_list_cb_t cb, void *cx) {
 
 static uint64_t fs_free(void *) { return LittleFS.totalBytes() - LittleFS.usedBytes(); }
 
-static const ws_fs_t FS = {nullptr, fs_stat, fs_open, fs_read, fs_write, fs_close, fs_rename, fs_remove,
-                           fs_mkdir, fs_list, fs_free};
+static int64_t fs_mtime(void *c, const char *path) {
+  char p[128];
+  if (!full(c, path, p, sizeof(p))) return 0;
+  File f = LittleFS.open(p);
+  int64_t t = f ? (int64_t)f.getLastWrite() : 0;
+  f.close();
+  return t > 1700000000 ? t : 0; // before late 2023: the clock was not set
+}
+
+static const ws_fs_t FS = {(void *)base_dir, fs_stat, fs_open, fs_read, fs_write, fs_close, fs_rename, fs_remove,
+                           fs_mkdir, fs_list, fs_free, fs_mtime};
+static const ws_fs_t FS_ROOT = {(void *)"", fs_stat, fs_open, fs_read, fs_write, fs_close, fs_rename, fs_remove,
+                                fs_mkdir, fs_list, fs_free, fs_mtime};
+
+const ws_fs_t *webshare_fs_root(void) { return &FS_ROOT; }
 
 // ---- state ----
 
-static struct {
-  bool running;
-  bool watch_alive;
-  app_webshare_mode_t mode;
-  ws_auth_t auth;
-  uint32_t last_request;
-  AsyncWebServer *server;
-  DNSServer *dns;
-  SemaphoreHandle_t lock; // start/stop and the upload state; handlers run in the async_tcp task
-  char network[33], address[40], ip[16], url[32];
-} S;
+webshare_state_t S;
 
-static ws_upload_t upload;
-static const void *upload_owner; // the request that began `upload`
-static uint32_t upload_last_chunk;
+ws_upload_t upload;
+const void *upload_owner;
+uint32_t upload_last_chunk;
 static bool zip_busy;
 
-typedef struct { // per upload request (AsyncWebServerRequest::_tempObject, freed by the library)
-  ws_result_t rc;
-  bool began, done, unauth;
-  ws_put_t how;
-  char final_path[WS_PATH_MAX + 1];
-} up_req_t;
 
 // ---- request helpers ----
 
-static void send_json(AsyncWebServerRequest *r, int code, const String &body) {
+void send_json(AsyncWebServerRequest *r, int code, const String &body) {
   AsyncWebServerResponse *res = r->beginResponse(code, "application/json", body);
   res->addHeader("Cache-Control", "no-store");
   r->send(res);
 }
 
-static void send_error(AsyncWebServerRequest *r, int code, const char *what) {
+void send_error(AsyncWebServerRequest *r, int code, const char *what) {
   JsonDocument d;
   d["error"] = what;
   String s;
@@ -154,14 +153,14 @@ static void send_error(AsyncWebServerRequest *r, int code, const char *what) {
   send_json(r, code, s);
 }
 
-static bool session_ok(AsyncWebServerRequest *r) {
-  if (!r->hasHeader("Cookie")) return false;
+String session_cookie(AsyncWebServerRequest *r) {
+  if (!r->hasHeader("Cookie")) return String();
   String c = r->header("Cookie");
   int at = c.indexOf("wsid=");
-  if (at < 0) return false;
-  String token = c.substring(at + 5, at + 5 + WS_TOKEN_LEN);
-  return ws_auth_session_ok(&S.auth, token.c_str());
+  return at < 0 ? String() : c.substring(at + 5, at + 5 + WS_TOKEN_LEN);
 }
+
+static bool session_ok(AsyncWebServerRequest *r) { return ws_auth_session_ok(&S.auth, session_cookie(r).c_str()); }
 
 // A request with a good session (and, for anything that changes data, the header only our page sends: another
 // site's form cannot add it). Refreshes the idle timer.
@@ -174,12 +173,12 @@ static bool guard(AsyncWebServerRequest *r, bool changes, bool reply = true) {
   return true;
 }
 
-static String param(AsyncWebServerRequest *r, const char *name, bool post = false) {
+String param(AsyncWebServerRequest *r, const char *name, bool post) {
   const AsyncWebParameter *p = r->getParam(name, post);
   return p ? p->value() : String();
 }
 
-static int http_code(ws_result_t rc) {
+int http_code(ws_result_t rc) {
   switch (rc) {
   case WS_OK: return 200;
   case WS_E_NAME: case WS_E_SHORT: return 400;
@@ -246,8 +245,8 @@ static void handle_get(AsyncWebServerRequest *r) {
   char path[128];
   uint32_t size;
   bool dir;
-  if (ws_classify(p.c_str()) != WS_DOC || fs_stat(nullptr, p.c_str(), &size, &dir) != 0 || dir ||
-      !full(p.c_str(), path, sizeof(path))) {
+  if (ws_classify(p.c_str()) != WS_DOC || fs_stat(base_dir, p.c_str(), &size, &dir) != 0 || dir ||
+      !full(base_dir, p.c_str(), path, sizeof(path))) {
     return send_error(r, 404, "no such document");
   }
   AsyncWebServerResponse *res = r->beginResponse(LittleFS, path, "application/octet-stream", true);
@@ -316,19 +315,21 @@ static void handle_delete(AsyncWebServerRequest *r) {
   send_error(r, http_code(rc), ws_result_str(rc));
 }
 
-// Body chunks of POST /api/put?p=<path>: raw file bytes. One upload at a time (the rest get 503).
-static void handle_put_body(AsyncWebServerRequest *r, uint8_t *data, size_t len, size_t index, size_t total) {
+// One piece of an upload. One upload at a time (the rest get 503). Writer: raw file bytes of POST /api/put?p=<path>.
+void webshare_feed_upload(AsyncWebServerRequest *r, const char *name, uint8_t *data, size_t len, size_t index,
+                          size_t total, bool last, bool exact) {
   up_req_t *q = (up_req_t *)r->_tempObject;
   if (index == 0) {
     q = (up_req_t *)calloc(1, sizeof(up_req_t));
     r->_tempObject = q;
     if (!q) return;
-    if (!guard(r, true, false)) {
+    if (S.install ? !webshare_install_allowed(r) : !guard(r, true, false)) {
       q->unauth = true;
       return;
     }
     xSemaphoreTake(S.lock, portMAX_DELAY);
-    q->rc = ws_upload_begin(&upload, &FS, param(r, "p").c_str(), (uint32_t)total);
+    q->rc = S.install ? ws_apps_begin(&upload, &FS_ROOT, name, (uint32_t)total)
+                      : ws_upload_begin(&upload, &FS, name, (uint32_t)total);
     q->began = q->rc == WS_OK;
     if (q->began) {
       upload_owner = r;
@@ -352,8 +353,9 @@ static void handle_put_body(AsyncWebServerRequest *r, uint8_t *data, size_t len,
     if (q->rc != WS_OK) {
       q->began = false;
       upload_owner = nullptr;
-    } else if (index + len == total) {
-      q->rc = ws_upload_end(&upload, &q->how, q->final_path);
+    } else if (last) {
+      if (S.install) webshare_install_finish(q, exact);
+      else q->rc = ws_upload_end(&upload, &q->how, q->final_path);
       q->began = false;
       q->done = true;
       upload_owner = nullptr;
@@ -363,6 +365,10 @@ static void handle_put_body(AsyncWebServerRequest *r, uint8_t *data, size_t len,
     q->rc = WS_E_SHORT;
   }
   xSemaphoreGive(S.lock);
+}
+
+static void handle_put_body(AsyncWebServerRequest *r, uint8_t *data, size_t len, size_t index, size_t total) {
+  webshare_feed_upload(r, param(r, "p").c_str(), data, len, index, total, index + len == total, true);
 }
 
 static void handle_put(AsyncWebServerRequest *r) {
@@ -460,11 +466,19 @@ static void add_routes(AsyncWebServer &server) {
         return r->send(go);
       }
     }
-    AsyncWebServerResponse *res = r->beginResponse(200, "text/html; charset=utf-8", WEBSHARE_PAGE);
+    AsyncWebServerResponse *res = r->beginResponse(200, "text/html; charset=utf-8", S.install ? webshare_install_page() : WEBSHARE_PAGE);
     res->addHeader("Cache-Control", "no-store");
     r->send(res);
   });
   server.on("/api/login", HTTP_POST, handle_login);
+  if (S.install) {
+    webshare_install_routes(server);
+    server.onNotFound([](AsyncWebServerRequest *r) {
+      if (S.mode == APP_WEBSHARE_AP) r->redirect(WS_AP_URL);
+      else r->send(404);
+    });
+    return;
+  }
   server.on("/api/list", HTTP_GET, handle_list);
   server.on("/api/get", HTTP_GET, handle_get);
   server.on("/api/zip", HTTP_GET, handle_zip);
@@ -477,7 +491,7 @@ static void add_routes(AsyncWebServer &server) {
   });
 }
 
-int webshare_start(app_webshare_mode_t requested) {
+static int start_common(app_webshare_mode_t requested, bool install) {
   if (requested != APP_WEBSHARE_AUTO && requested != APP_WEBSHARE_AP && requested != APP_WEBSHARE_HOME) {
     return APP_EINVAL;
   }
@@ -490,10 +504,16 @@ int webshare_start(app_webshare_mode_t requested) {
   if (mode == APP_WEBSHARE_AP) Log_info("webshare: no home network, using the access point");
 
   xSemaphoreTake(S.lock, portMAX_DELAY);
-  snprintf(base_dir, sizeof(base_dir), "%s", app_host.dir);
-  LittleFS.mkdir(APPS_DATA_DIR);
-  LittleFS.mkdir(base_dir);
-  ws_store_cleanup(&FS); // temporary files a power loss left
+  S.install = install;
+  if (install) { // the file system root, the apps folder
+    LittleFS.mkdir("/apps");
+    ws_apps_cleanup(&FS_ROOT);
+  } else {
+    snprintf(base_dir, sizeof(base_dir), "%s", app_host.dir);
+    LittleFS.mkdir(APPS_DATA_DIR);
+    LittleFS.mkdir(base_dir);
+    ws_store_cleanup(&FS); // temporary files a power loss left
+  }
   memset(&S.auth, 0, sizeof(S.auth));
   ws_auth_init(&S.auth, esp_random());
   uint32_t tok[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
@@ -544,6 +564,9 @@ int webshare_start(app_webshare_mode_t requested) {
   if (rc == 0) Log_info("webshare: on, %s mode, %s", mode == APP_WEBSHARE_AP ? "access point" : "home network", S.address);
   return rc;
 }
+
+int webshare_start(app_webshare_mode_t requested) { return start_common(requested, false); }
+int webshare_start_install(void) { return start_common(APP_WEBSHARE_AUTO, true); }
 
 int webshare_status(app_webshare_status_t *st) {
   if (!st) return APP_EINVAL;

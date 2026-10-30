@@ -207,19 +207,21 @@ void test_token_guesses_lock_like_wrong_codes() {
 // The firmware must never write the code, the token or the login link to the log: no Log_ line in
 // src/webshare.cpp may mention them (the file is read from the project root, where pio runs the tests)
 void test_firmware_never_logs_token_or_code() {
-  FILE *f = fopen("src/webshare.cpp", "r");
-  TEST_ASSERT_NOT_NULL_MESSAGE(f, "src/webshare.cpp not found");
-  char line[512];
   int logs = 0;
-  while (fgets(line, sizeof(line), f)) {
-    if (!strstr(line, "Log_") && !strstr(line, "Serial.")) continue;
-    logs++;
-    for (const char *w : {"token", "login", "pin", "code", "auth", "cookie", "wsid", "S.url", "status"}) {
-      TEST_ASSERT_NULL_MESSAGE(strstr(line, w), line);
+  for (const char *file : {"src/webshare.cpp", "src/webshare_install.cpp"}) {
+    FILE *f = fopen(file, "r");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, file);
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+      if (!strstr(line, "Log_") && !strstr(line, "Serial.")) continue;
+      logs++;
+      for (const char *w : {"token", "login", "pin", "code", "auth", "cookie", "wsid", "S.url", "status", "st.url"}) {
+        TEST_ASSERT_NULL_MESSAGE(strstr(line, w), line);
+      }
     }
+    fclose(f);
   }
-  fclose(f);
-  TEST_ASSERT_TRUE(logs >= 5); // the check really saw the log lines
+  TEST_ASSERT_TRUE(logs >= 7); // the check really saw the log lines
 }
 
 // ---- upload ----

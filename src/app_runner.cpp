@@ -4,6 +4,7 @@
 
 #include <LittleFS.h>
 #include <app_elf_check.h>
+#include <app_install.h>
 #include <app_keys.h>
 #include <app_path.h>
 #include <app_resume.h>
@@ -18,6 +19,7 @@
 #include <globals.h>
 #include <iqs323_task.h>
 #include <preferences_persistence.h>
+#include <qrcodegen.h>
 #include <trmnl_log.h>
 
 #include <algorithm>
@@ -62,6 +64,14 @@ int apps_list(char names[][32], char paths[][APPS_PATH_MAX], int max) {
 }
 
 // ---- back to TRMNL ----
+
+// An app installed over Wi-Fi that fails to start gets its older version back (app_install.h); the text says so
+static const char *with_restore_note(Persistence &p, const char *what) {
+  static char text[96];
+  if (!app_install_failed(p, webshare_fs_root(), app_host.name)) return what;
+  snprintf(text, sizeof(text), "%s; the previous version was put back", what);
+  return text;
+}
 
 // Shows why the app stopped, then sleeps; the next wake is TRMNL's as usual
 static void app_error_and_sleep(const char *name, const char *what) {
@@ -132,6 +142,16 @@ static bool pump_touch(void) {
     t.down = false;
   }
   return long_press;
+}
+
+// A touch still down (the tap that chose the app, or the one that woke the device) is not the app's
+static void touch_reset(void) {
+  touchbar_snapshot_t snap;
+  iqs323_task_read_snapshot(&snap);
+  const bool down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
+  for (int ch = 0; ch < 3; ch++) {
+    touch[ch] = {down[ch], millis(), down[ch]};
+  }
 }
 
 // Reads the serial port: a terminal's keys
@@ -207,6 +227,7 @@ static bool app_supervise(PreferencesPersistence &persistence) {
   while (xSemaphoreTake(app_host.done, pdMS_TO_TICKS(APP_POLL_MS)) != pdTRUE) {
     if (!marked_started && millis() - started >= APP_RESUME_STARTED_MS) {
       app_resume_started(persistence);
+      app_install_started(persistence, webshare_fs_root(), app_host.name);
       marked_started = true;
     }
     pump_keys();
@@ -234,13 +255,14 @@ void apps_run(const char *path) {
   snprintf(app_host.dir, sizeof(app_host.dir), APPS_DATA_DIR "/%s", app_host.name);
   Log_info("Apps: starting %s", path);
   app_resume_starting(persistence, path);
+  app_install_start(persistence, webshare_fs_root(), app_host.name); // a new version installed over Wi-Fi
 
   static esp_elf_t elf;
   app_info_t info;
   const char *error = app_load(path, &elf, &info);
   if (error) {
     app_resume_ended(persistence);
-    app_error_and_sleep(app_host.name, error);
+    app_error_and_sleep(app_host.name, with_restore_note(persistence, error));
   }
   if (!LittleFS.exists(APPS_DATA_DIR)) LittleFS.mkdir(APPS_DATA_DIR);
   if (!LittleFS.exists(app_host.dir)) LittleFS.mkdir(app_host.dir);
@@ -252,20 +274,14 @@ void apps_run(const char *path) {
   Serial.begin(115200); // the keys of a terminal on the USB serial port
   iqs323_task_set_streaming_mode(true); // fresh touch data while the app runs
   iqs323_task_take_touch_starts();      // the tap that started it
-  // A touch still down (the tap that chose the app, or the one that woke the device) is not the app's
-  touchbar_snapshot_t snap;
-  iqs323_task_read_snapshot(&snap);
-  const bool down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
-  for (int ch = 0; ch < 3; ch++) {
-    touch[ch] = {down[ch], millis(), down[ch]};
-  }
+  touch_reset();
 
   TaskHandle_t task = nullptr;
   if (!app_host.events || !app_host.done ||
       xTaskCreatePinnedToCore(app_task, "app", info.stack_size, nullptr, 1, &task, 1) != pdPASS) {
     esp_elf_deinit(&elf);
     app_resume_ended(persistence);
-    app_error_and_sleep(app_host.name, "not enough memory for its stack");
+    app_error_and_sleep(app_host.name, with_restore_note(persistence, "not enough memory for its stack"));
   }
   Log_info("Apps: %s (%s) running, %lu bytes of stack", info.name, path, (unsigned long)info.stack_size);
 
@@ -288,13 +304,86 @@ void apps_run(const char *path) {
   if (code != 0) {
     char what[48];
     snprintf(what, sizeof(what), "ended with error %d", code);
-    app_error_and_sleep(app_host.name, what);
+    app_error_and_sleep(app_host.name, with_restore_note(persistence, what));
   }
+  app_install_started(persistence, webshare_fs_root(), app_host.name); // it ran and ended well: no .bak needed
+  show_last_image_and_sleep();
+}
+
+// ---- Install via Wi-Fi ----
+
+#define QR_SCALE 12
+
+// Draws the QR of `text` with its top left at (x, y); false if it does not fit a version-8 code
+static bool draw_qr(const char *text, int x, int y) {
+  static uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)], code[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+  if (!qrcodegen_encodeText(text, temp, code, qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true)) return false;
+  int size = qrcodegen_getSize(code), quiet = 2;
+  bbep.fillRect(x, y, (size + 2 * quiet) * QR_SCALE, (size + 2 * quiet) * QR_SCALE, BBEP_WHITE);
+  for (int row = 0; row < size; row++) {
+    for (int col = 0; col < size; col++) {
+      if (qrcodegen_getModule(code, col, row)) {
+        bbep.fillRect(x + (col + quiet) * QR_SCALE, y + (row + quiet) * QR_SCALE, QR_SCALE, QR_SCALE, BBEP_BLACK);
+      }
+    }
+  }
+  return true;
+}
+
+void apps_install_session(void) {
+  int rc = webshare_start_install();
+  app_webshare_status_t st;
+  webshare_status(&st);
+  if (rc != 0 || !st.running) {
+    char what[48];
+    snprintf(what, sizeof(what), "could not start (error %d)", rc);
+    app_error_and_sleep("Install via Wi-Fi", what);
+  }
+  Log_info("Apps: install page on, %s", st.url);
+  const int x = bbep.width() / 12;
+  const int y = bbep.height() / 6;
+  bbep.setMode(BB_MODE_1BPP);
+  bbep.fillScreen(BBEP_WHITE);
+  bbep.setTextColor(BBEP_BLACK, BBEP_WHITE);
+  bbep.setFont(Roboto_Black_24);
+  bbep.drawString("Install apps via Wi-Fi", x, y);
+  char line[80];
+  bbep.setFont(Inter_18);
+  if (st.mode == APP_WEBSHARE_HOME) {
+    snprintf(line, sizeof(line), "Online at %s", st.url);
+    bbep.drawString(line, x, y + 110);
+  } else {
+    snprintf(line, sizeof(line), "No home Wi-Fi: join the network \"%s\"", st.network);
+    bbep.drawString(line, x, y + 110);
+    snprintf(line, sizeof(line), "then open %s", st.url);
+    bbep.drawString(line, x, y + 180);
+  }
+  snprintf(line, sizeof(line), "Code: %s", st.code);
+  bbep.drawString(line, x, y + 290);
+  bbep.drawString("Scan the code on the right, or type the code on the page.", x, y + 380);
+  bbep.drawString("Long press to stop.", x, y + 480);
+  draw_qr(st.login_url, bbep.width() / 2 + x, y);
+  bbep.fullUpdate(CLEAR_FAST, false);
+
+  iqs323_task_set_streaming_mode(true);
+  iqs323_task_take_touch_starts();
+  touch_reset();
+  while (true) {
+    delay(APP_POLL_MS * 5);
+    if (pump_touch()) break;
+    webshare_status(&st);
+    if (!st.running) break; // idle for 15 minutes, or too many wrong codes
+  }
+  iqs323_task_set_streaming_mode(false);
+  webshare_stop();
   show_last_image_and_sleep();
 }
 
 void apps_resume_if_due(void) {
   PreferencesPersistence persistence(preferences);
+  char restored[32];
+  app_install_recover(persistence, webshare_fs_root(), restored, sizeof(restored)); // a start that crashed
+  if (restored[0]) Log_error("Apps: %s crashed while starting, the previous version was put back", restored);
   esp_reset_reason_t reason = esp_reset_reason();
   bool crashed = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT ||
                  reason == ESP_RST_WDT;

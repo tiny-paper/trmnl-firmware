@@ -265,7 +265,7 @@ enum main_menu_item_t {
   MAIN_MENU_NEXT_SCREEN,
   MAIN_MENU_PREVIOUS_SCREEN,
   MAIN_MENU_TUTORIAL, // only with a control scheme that has a tutorial
-  MAIN_MENU_APPS,     // only with apps in /apps
+  MAIN_MENU_APPS,     // the apps in /apps and Install via Wi-Fi
   MAIN_MENU_SPECIAL,
   MAIN_MENU_SETTINGS,
   MAIN_MENU_CLOSE,
@@ -538,6 +538,7 @@ enum menu_outcome_t {
   MENU_OUTCOME_APP,
   MENU_OUTCOME_RESET_WIFI,
   MENU_OUTCOME_SHUT_DOWN,
+  MENU_OUTCOME_INSTALL, // Apps > Install via Wi-Fi
   MENU_OUTCOME_CLOSE, // Close on the main menu, or a timeout on any screen
 };
 
@@ -561,7 +562,6 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
   int main_count = 0;
   for (int i = 0; i < MAIN_MENU_COUNT; i++) {
     if (i == MAIN_MENU_TUTORIAL && !menu_controls->tutorial) continue;
-    if (i == MAIN_MENU_APPS && app_count == 0) continue;
     main_labels[main_count] = i == MAIN_MENU_TUTORIAL ? menu_controls->tutorial->item : main_menu_labels[i];
     main_items[main_count++] = (main_menu_item_t)i;
   }
@@ -596,14 +596,16 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       break;
     }
     case MENU_SCREEN_APPS: {
-      const char *labels[APPS_MAX + 1];
+      const char *labels[APPS_MAX + 2];
       for (int i = 0; i < app_count; i++) {
         labels[i] = app_names[i];
       }
-      labels[app_count] = "Back";
-      int item = run_menu_screen(labels, app_count + 1, true);
+      labels[app_count] = "Install via Wi-Fi";
+      labels[app_count + 1] = "Back";
+      int item = run_menu_screen(labels, app_count + 2, true);
       if (item < 0) return MENU_OUTCOME_CLOSE;
-      if (item == app_count) { // Back
+      if (item == app_count) return MENU_OUTCOME_INSTALL;
+      if (item == app_count + 1) { // Back
         screen = MENU_SCREEN_MAIN;
         break;
       }
@@ -704,6 +706,9 @@ void menu_open(const menu_controls_t &controls) {
     break;
   case MENU_OUTCOME_APP:
     apps_run(app_paths[app_chosen]); // does not return
+    break;
+  case MENU_OUTCOME_INSTALL:
+    apps_install_session(); // does not return
     break;
   case MENU_OUTCOME_RESET_WIFI:
     Log_info("Resetting WiFi from the menu");
