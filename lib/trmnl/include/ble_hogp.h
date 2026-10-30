@@ -89,7 +89,33 @@ typedef struct {
   hid_map_kbd_t kbd;
   bool boot; // boot protocol
   int in; // the subscribed characteristic
+  bool from_cache; // handles from hogp_cache_t, no discovery on this link
+  bool cache_stale; // the stored cache is wrong (Service Changed, a failed subscribe): the caller erases it
 } hogp_t;
+
+// The handles of a bonded keyboard, kept (NVS) so a reconnect skips discovery and subscribes at once: the
+// keyboard types within a second of connecting instead of after 10 to 20 s of GATT requests. Dropped when the
+// keyboard indicates Service Changed or subscribing with it fails; discovery runs again then on the same link.
+#define HOGP_CACHE_VERSION 1
+typedef struct {
+  uint8_t version;
+  uint8_t addr[7]; // the bond's identity address (ble_pair_peer_t.addr)
+  uint16_t svc_start, svc_end;
+  uint8_t chrs;
+  hogp_chr_t chr[HOGP_MAX_CHRS];
+  hid_map_kbd_t kbd;
+} hogp_cache_t;
+
+// A cache for this keyboard: the version, the address and the handles hold together
+bool hogp_cache_valid(const hogp_cache_t *c, const uint8_t addr[7]);
+// After HOGP_DO_READY: the handles to keep for `addr`; false when not ready
+bool hogp_cache_fill(const hogp_t *h, const uint8_t addr[7], hogp_cache_t *c);
+// hogp_start with the kept handles (`c` from hogp_cache_valid, or nullptr): once encrypted, protocol mode and
+// subscribing follow at once, no discovery
+hogp_act_t hogp_start_cached(hogp_t *h, uint32_t now_ms, const hogp_cache_t *c);
+// An indication from the keyboard: on any handle but the HID service's own it is Service Changed (keyboards
+// indicate nothing else to a HID host). The handles may have moved: cache_stale, discovery again
+hogp_act_t hogp_indicated(hogp_t *h, uint16_t attr_handle, uint32_t now_ms);
 
 // Connected (the link is up, not yet encrypted)
 hogp_act_t hogp_start(hogp_t *h, uint32_t now_ms);

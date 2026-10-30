@@ -43,13 +43,60 @@ ble_fail_t hogp_enc_fail(int status, bool passkey_shown) {
   return BLE_FAIL_TIMEOUT; // the link went (ENOTCONN and the like)
 }
 
-hogp_act_t hogp_start(hogp_t *h, uint32_t now) {
+hogp_act_t hogp_start(hogp_t *h, uint32_t now) { return hogp_start_cached(h, now, nullptr); }
+
+hogp_act_t hogp_start_cached(hogp_t *h, uint32_t now, const hogp_cache_t *c) {
   memset(h, 0, sizeof(*h));
   h->in = -1;
   h->state = HOGP_SECURING;
   h->deadline = now + HOGP_SECURE_MS;
+  if (c && c->version == HOGP_CACHE_VERSION && c->chrs <= HOGP_MAX_CHRS) {
+    h->from_cache = true;
+    h->svc_start = c->svc_start;
+    h->svc_end = c->svc_end;
+    h->chrs = c->chrs;
+    memcpy(h->chr, c->chr, sizeof(h->chr));
+    h->kbd = c->kbd;
+  }
   return act(HOGP_DO_SECURE);
 }
+
+bool hogp_cache_valid(const hogp_cache_t *c, const uint8_t addr[7]) {
+  if (!c || !addr || c->version != HOGP_CACHE_VERSION || memcmp(c->addr, addr, sizeof(c->addr)) != 0) return false;
+  if (c->chrs == 0 || c->chrs > HOGP_MAX_CHRS || c->svc_start == 0 || c->svc_end < c->svc_start) return false;
+  for (int i = 0; i < c->chrs; i++) {
+    if (c->chr[i].val <= c->svc_start || c->chr[i].val > c->svc_end) return false;
+  }
+  return true;
+}
+
+bool hogp_cache_fill(const hogp_t *h, const uint8_t addr[7], hogp_cache_t *c) {
+  if (!h || !addr || !c || h->state != HOGP_READY) return false;
+  memset(c, 0, sizeof(*c));
+  c->version = HOGP_CACHE_VERSION;
+  memcpy(c->addr, addr, sizeof(c->addr));
+  c->svc_start = h->svc_start;
+  c->svc_end = h->svc_end;
+  c->chrs = (uint8_t)h->chrs;
+  memcpy(c->chr, h->chr, sizeof(c->chr));
+  c->kbd = h->kbd;
+  return true;
+}
+
+// The kept handles are wrong: forget them and discover on this link
+static hogp_act_t rediscover(hogp_t *h, uint32_t deadline) {
+  h->from_cache = false;
+  h->cache_stale = true;
+  h->svc_start = h->svc_end = 0;
+  h->chrs = 0;
+  h->in = -1;
+  memset(&h->kbd, 0, sizeof(h->kbd));
+  h->state = HOGP_FIND_SERVICE;
+  h->deadline = deadline;
+  return act(HOGP_DO_FIND_SERVICE);
+}
+
+static hogp_act_t choose(hogp_t *h);
 
 hogp_act_t hogp_secure_started(hogp_t *h, int rc, bool encrypted, uint32_t now) {
   if (h->state != HOGP_SECURING) return act(HOGP_DO_NONE);
@@ -69,6 +116,11 @@ hogp_act_t hogp_encrypted(hogp_t *h, int status, uint32_t now) {
   if (status != 0) return fail(h, hogp_enc_fail(status, h->state == HOGP_PASSKEY));
   h->state = HOGP_FIND_SERVICE;
   h->deadline = now + HOGP_DISCOVER_MS;
+  if (h->from_cache) {
+    hogp_act_t a = choose(h); // protocol mode, then subscribe
+    if (a.what != HOGP_DO_FAIL) return a;
+    return rediscover(h, h->deadline); // the kept handles name no keyboard input
+  }
   return act(HOGP_DO_FIND_SERVICE);
 }
 
@@ -221,11 +273,20 @@ hogp_act_t hogp_written(hogp_t *h, int status) {
     return subscribe(h);
   }
   if (h->state == HOGP_SUBSCRIBE) {
+    if (status != 0 && h->from_cache) return rediscover(h, h->deadline); // a timeout fails there again
     if (status != 0) return fail(h, gatt_fail(status));
     h->state = HOGP_READY;
     return act(HOGP_DO_READY);
   }
   return act(HOGP_DO_NONE);
+}
+
+hogp_act_t hogp_indicated(hogp_t *h, uint16_t attr, uint32_t now) {
+  if (h->state == HOGP_IDLE || h->state == HOGP_FAILED || h->state == HOGP_SECURING || h->state == HOGP_PASSKEY) {
+    return act(HOGP_DO_NONE);
+  }
+  if (h->svc_start && attr >= h->svc_start && attr <= h->svc_end) return act(HOGP_DO_NONE); // a HID value
+  return rediscover(h, now + HOGP_DISCOVER_MS);
 }
 
 hogp_act_t hogp_tick(hogp_t *h, uint32_t now) {

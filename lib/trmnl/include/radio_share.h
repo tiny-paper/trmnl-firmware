@@ -17,6 +17,10 @@ ble_share_scan_t ble_share_list(void);
 // Connecting the picked or bonded keyboard (ble_gap_connect). NimBLE's default is a window as long as the
 // interval: the radio all BLE for the whole attempt, every attempt, while a bonded keyboard sleeps
 ble_share_scan_t ble_share_connect(void);
+// The same, `since_ms` after the keyboard was turned on (app start): the first BLE_SHARE_FULL_MS take the whole
+// radio (Wi-Fi is idle then, the keyboard is found at its first advertisement); shared after that
+#define BLE_SHARE_FULL_MS 5000
+ble_share_scan_t ble_share_connect_at(uint32_t since_ms);
 // Percent of the radio time a scan takes
 unsigned ble_share_duty(ble_share_scan_t s);
 
