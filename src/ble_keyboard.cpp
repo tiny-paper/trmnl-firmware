@@ -17,6 +17,7 @@
 #include <freertos/idf_additions.h>
 #include <hid_keys.h>
 #include <nvs.h>
+#include <radio_share.h>
 #include <sdkconfig.h>
 #include <trmnl_log.h>
 
@@ -329,8 +330,9 @@ static void scan(bool on) {
     struct ble_gap_disc_params dp = {};
     dp.passive = 0; // scan responses carry the name
     dp.filter_duplicates = 0; // the signal keeps updating
-    dp.itvl = 0x50; // a 30 ms window every 50 ms: Wi-Fi gets the rest
-    dp.window = 0x30;
+    ble_share_scan_t share = ble_share_list(); // Wi-Fi gets the rest
+    dp.itvl = share.itvl;
+    dp.window = share.window;
     int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, on_disc, nullptr);
     scanning = rc == 0;
     if (rc) Log_error("BLE keys: scan failed (%d)", rc);
@@ -385,7 +387,19 @@ static void apply(uint32_t act) {
   if (act & BLE_ACT_CONNECT) {
     scan(false);
     ble_addr_t a = to_addr(&pair.target);
-    int rc = ble_gap_connect(own_addr_type, &a, CONNECT_MS, nullptr, gap_event, nullptr);
+    // NimBLE's defaults, except the scan: its default window fills the interval and starves Wi-Fi while a
+    // bonded keyboard sleeps (an attempt every CONNECT_MS + BLE_PAIR_RETRY_MS)
+    ble_share_scan_t share = ble_share_connect();
+    struct ble_gap_conn_params cp = {};
+    cp.scan_itvl = share.itvl;
+    cp.scan_window = share.window;
+    cp.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;
+    cp.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;
+    cp.latency = BLE_GAP_INITIAL_CONN_LATENCY;
+    cp.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    cp.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
+    cp.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
+    int rc = ble_gap_connect(own_addr_type, &a, CONNECT_MS, &cp, gap_event, nullptr);
     if (rc) {
       Log_error("BLE keys: connect failed to start (%d)", rc);
       apply(ble_pair_failed(&pair, BLE_FAIL_TIMEOUT, millis()));

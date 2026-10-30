@@ -14,7 +14,9 @@
 #include <power.h>
 #include <epd_driver.h>
 #include <esp_crt_bundle.h>
+#include <esp_heap_caps.h>
 #include <esp_http_client.h>
+#include <radio_share.h>
 #include <stdarg.h>
 #include <sys/time.h>
 #include <trmnl_log.h>
@@ -238,19 +240,40 @@ static int file_mkdir(const char *path) {
 
 // ---- net ----
 
-#define APP_WIFI_TIMEOUT_MS 15000
-
+// One log line per call (radio_share.h): the device log says why an app saw "no network"
 static bool net_up(void) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  if (!WifiCaptivePortal.isSaved()) return false;
-  // 5 GHz networks go through the modem, whose AT interface has no HTTP client for apps yet
-  if (WifiCaptivePortal.getLastCredentials().is5GHz) return false;
-  WiFi.mode(WIFI_STA);
-  bool up = connectWithSavedCredentials();
-  // Sharing the radio with a Bluetooth keyboard: modem sleep lets the coexistence scheduler give BLE its slots
-  // (TRMNL's connect turns sleep off)
-  if (up && ble_keyboard_radio_on()) WiFi.setSleep(WIFI_PS_MIN_MODEM);
-  return up;
+  uint32_t t0 = millis();
+  bool ble = ble_keyboard_radio_on();
+  net_up_state_t s = {WiFi.status() == WL_CONNECTED, false, false};
+  if (!s.connected) {
+    s.saved = WifiCaptivePortal.isSaved();
+    // 5 GHz networks go through the modem, whose AT interface has no HTTP client for apps yet
+    s.is5ghz = s.saved && WifiCaptivePortal.getLastCredentials().is5GHz;
+  }
+  net_up_report_t r = {};
+  r.step = net_up_step(s);
+  r.up = r.step == NET_UP_ALREADY;
+  if (r.step == NET_UP_JOIN) {
+    // Sharing the radio with a Bluetooth keyboard: modem sleep during the join too, so the coexistence scheduler
+    // gives each its slots (TRMNL's connect turns sleep off; Arduino applies the setting when the station starts)
+    bool modem = net_up_modem_sleep(ble);
+    WiFi.setSleep(modem ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+    WifiCaptivePortal.setJoinModemSleep(modem);
+    WiFi.mode(WIFI_STA);
+    r.up = connectWithSavedCredentials();
+    WifiCaptivePortal.setJoinModemSleep(false);
+    if (r.up && modem) WiFi.setSleep(WIFI_PS_MIN_MODEM);
+  }
+  r.ms = millis() - t0;
+  r.wl_status = (int)WiFi.status();
+  r.rssi = WiFi.RSSI();
+  r.ble_on = ble;
+  r.kbd_connected = ble && ble_keyboard_connected();
+  r.internal_free = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  char line[200];
+  net_up_log_line(line, sizeof(line), &r);
+  Log_info("%s", line);
+  return r.up;
 }
 
 bool app_host_net_up(void) { return net_up(); }
@@ -284,7 +307,12 @@ static int http_request(const app_http_request_t *req, void *buf, size_t buf_len
     esp_http_client_set_header(client, name, value);
   }
   int rc = APP_ETIMEDOUT;
-  if (esp_http_client_open(client, req->body ? (int)req->body_len : 0) == ESP_OK) {
+  esp_err_t open_rc = esp_http_client_open(client, req->body ? (int)req->body_len : 0);
+  // An app reports this as "no network" too: the log tells it from a failed net_up (TLS out of RAM, DNS, timeout)
+  if (open_rc != ESP_OK)
+    Log_info("Net: %s request failed to open: %s, internal RAM %u free", method, esp_err_to_name(open_rc),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  if (open_rc == ESP_OK) {
     if (!req->body || esp_http_client_write(client, (const char *)req->body, (int)req->body_len) == (int)req->body_len) {
       esp_http_client_fetch_headers(client);
       resp->status = esp_http_client_get_status_code(client);

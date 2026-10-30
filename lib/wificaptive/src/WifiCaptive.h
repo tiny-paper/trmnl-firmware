@@ -73,6 +73,7 @@ private:
 
   WifiCredentials _savedWifis[WIFI_MAX_SAVED_CREDS];
   int _lastIndex = 0;
+  bool _joinModemSleep = false;
 
   std::vector<ExternalNetwork> _networks;
 
@@ -128,6 +129,9 @@ public:
   /// @brief Connects to the saved SSID with the best signal strength
   /// @return True if successfully connected to saved SSID, false otherwise.
   bool autoConnect();
+
+  /// @brief Wi-Fi modem sleep for autoConnect's join: off by default (TRMNL), on while Bluetooth LE shares the radio
+  void setJoinModemSleep(bool on) { _joinModemSleep = on; }
 
   /// @brief Replaces the internal WiFi scan list with an externally provided one.
   ///        Call before startPortal() so the portal shows these networks exclusively.
