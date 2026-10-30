@@ -16,6 +16,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 |---|---|
 | screen | `screen_width`, `screen_height`, `screen_set_mode` (1-bit or 4-bit gray, returns the framebuffer), `screen_stride`, `screen_refresh` (rectangle or all, partial or full) |
 | input | `input_poll(ev, timeout)`: key down/up (code, modifiers, UTF-8) from a terminal on the USB serial port, touch bar taps (zone; swipes not yet), `APP_EVENT_EXIT` |
+| keyboards (API 2) | `keyboard_enable(APP_KBD_USB)`, `keyboard_status()`: keys of a USB keyboard with their HID usage, `APP_EVENT_KEYBOARD` when one comes or goes (below) |
 | files | `file_open/read/write/seek/close/list/rename/remove/mkdir`, paths relative to `/appdata/<app>/` |
 | time | `millis`, `wall_time` (Unix s, 0 if unset), `sleep_ms` (yields, returns early on an event) |
 | log | `log(fmt, ...)` |
@@ -24,6 +25,25 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | exit | `exit(code)`: ends the app now |
 
 Errors are negative `APP_E*` values.
+
+## Keyboards
+
+| | |
+|---|---|
+| keys | KEY_DOWN / KEY_UP with `hid_usage` (HID keyboard page) and `modifiers` (`APP_MOD_ALTGR` = right Alt). No layout in the firmware: Enter, Escape, Backspace, Tab, Delete, arrows, Home, End, Page Up/Down, F1..F12 get their `app_key_t`, every other key is `APP_KEY_HID` with an empty `utf8`; the app maps its layout (`lib/trmnl/src/hid_keys.cpp`) |
+| removed mid-typing | KEY_UP for every key still held, then `APP_EVENT_KEYBOARD` with the bits still connected |
+| Bluetooth LE | not yet: `keyboard_enable(APP_KBD_BLE)` returns `APP_ENOTSUP` |
+
+USB port (`lib/trmnl/include/usb_port.h`, applied by `src/usb_keyboard.cpp`): device mode (charging, serial, flashing) is the default.
+
+| Case | Port |
+|---|---|
+| no app asked for USB keys, or the app ended | device mode (the app's end waits for it) |
+| a charger or computer powers the port (charger PG, IOX pin 0), or PG unreadable | device mode, in the same 100 ms poll |
+| on battery for 1 s, app wants USB keys | host mode: 5 V boost on (IOX pin 1), USB host + `espressif/usb_host_hid` (boot keyboard) |
+| host mode, no keyboard within 3 s / keyboard removed | device mode, next probe after 10 s |
+| restart, crash, deep sleep | device mode: the boot (`wake_init.cpp`), a restart handler and `goToSleep` give the PHY back to the USB serial/JTAG and clear the ROM's forced download boot |
+| USB stack does not stop within 1 s, or the boost cannot be switched off | restart (which starts in device mode) |
 
 ## Rules the firmware enforces
 
@@ -71,8 +91,10 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 |---|---|---|
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
+| USB port rules (power, 1 s wait, probe, removal, charger in host mode, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
+| on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
 `$TRMNLSIM_DIR`), then `python3 -m venv .venv && .venv/bin/pip install pytest littlefs-python` and
@@ -80,7 +102,8 @@ Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in
 
 ## Device check
 
-Not proven on a real X: PSRAM code execution on the device's cache settings, the panel output of the app's
+Not proven on a real X: everything in USB host mode (boost powers the port, PG while the boost runs, enumeration of
+a keyboard through an OTG adapter, clean switch back, flashing afterwards), PSRAM code execution on the device's cache settings, the panel output of the app's
 framebuffer (1-bit and gray), partial refresh, touch timing on the real IQS323, HTTPS from an app.
 
 | Step | Look for |
@@ -95,3 +118,17 @@ framebuffer (1-bit and gray), partial refresh, touch timing on the real IQS323, 
 | Hold the touch bar 2 s | back to the TRMNL screen; log `Apps: hello ended with 0` |
 | Start hello, wait 10 s, press reset | hello comes back ("Run 2"); log `Apps: resuming /apps/hello.elf` |
 | Send `test/sim/apps/crash` (build with `OUT=apps/build apps/build.sh test/sim/apps/crash`, then upload.py), start it | one panic and restart, then TRMNL; not started again |
+
+### Device check: USB keyboard (needs a USB-C OTG adapter and a wired keyboard)
+
+| Step | Look for |
+|---|---|
+| Send `keys.elf`, start Keys with the PC cable in | log `USB keys: input power: device mode`; serial log keeps running; no host mode |
+| Unplug the PC, plug the OTG adapter + keyboard | within about 1 s: `host mode: looking for a keyboard`, then `keyboard connected`; screen "keyboards now: usb" |
+| Type `a`, Shift+`a`, AltGr+`2` (AZERTY ~), arrows, F1 | `down usage 0x04 code 0x300`, `mods 0x01`, `mods 0x10` with usage 0x1f, codes 0x100..0x103, 0x108 |
+| Hold a key, pull the keyboard | `up usage ...` for the held key, `keyboard removed`, `no keyboard: device mode`, within 1 s |
+| Keyboard in, then plug the PC cable into the adapter or the port | `input power: device mode` within 1 s (unproven: PG may read "no power" while the boost drives VBUS; then the PC is not seen until the keyboard is pulled) |
+| Keyboard in, long press to end Keys | `Apps: keys ended with 0` and device mode; plug the PC: `/dev/ttyACM0` appears |
+| Keyboard in, press reset | the X boots normally (not ROM download mode), PC sees the serial port, `esptool.py chip_id` works |
+| Keyboard in, wait for an app crash or flash `test/sim/apps/crash` style panic in Keys | boots normally, serial port present |
+| After all of the above: `pio run -e TRMNL_X -t upload` over the cable | flashing works without holding BOOT |

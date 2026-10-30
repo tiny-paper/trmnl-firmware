@@ -18,6 +18,7 @@ typedef struct {
   QueueHandle_t events; // app_event_t, filled by the runner's input pump
   SemaphoreHandle_t done; // given once the app returned or called exit()
   volatile int code; // its result
+  SemaphoreHandle_t panel; // the panel driver and its IO expander: an app's refresh, the USB port's charger reads
 } app_host_t;
 
 extern app_host_t app_host;

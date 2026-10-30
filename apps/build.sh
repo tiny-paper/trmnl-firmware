@@ -12,7 +12,9 @@ cc=$tc/xtensa-esp32s3-elf-gcc
 strip=$tc/xtensa-esp32s3-elf-strip
 out=${OUT:-$here/build}
 mkdir -p "$out"
-apps=${*:-$(cd "$here" && ls -d */ | tr -d / | grep -v -e '^build$' -e '^common$')}
+# every folder with C sources, but build/ and common/ (not __pycache__ and such)
+apps=${*:-$(cd "$here" && for d in */; do d=${d%/}; ls "$d"/*.c >/dev/null 2>&1 && echo "$d"; done |
+  grep -v -e '^build$' -e '^common$')}
 for app in $apps; do
   dir=$app
   [ -d "$dir" ] || dir=$here/$app

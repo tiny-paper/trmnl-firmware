@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "app_host.h"
+#include "keyboards.h"
 
 #define APP_POLL_MS       20
 #define APP_LONG_PRESS_MS 1500
@@ -246,6 +247,7 @@ void apps_run(const char *path) {
 
   app_host.events = xQueueCreate(APP_HOST_EVENT_QUEUE, sizeof(app_event_t));
   app_host.done = xSemaphoreCreateBinary();
+  app_host.panel = xSemaphoreCreateMutex();
   app_entry = (app_entry_t)elf.entry;
   app_key_decoder_init(&keys);
   Serial.begin(115200); // the keys of a terminal on the USB serial port
@@ -260,7 +262,7 @@ void apps_run(const char *path) {
   }
 
   TaskHandle_t task = nullptr;
-  if (!app_host.events || !app_host.done ||
+  if (!app_host.events || !app_host.done || !app_host.panel ||
       xTaskCreatePinnedToCore(app_task, "app", info.stack_size, nullptr, 1, &task, 1) != pdPASS) {
     esp_elf_deinit(&elf);
     app_resume_ended(persistence);
@@ -277,11 +279,14 @@ void apps_run(const char *path) {
   }
   int code = app_host.code;
   Log_info("Apps: %s ended with %d", app_host.name, code);
+  keyboards_end(); // the USB port back in device mode before anything else
   iqs323_task_set_streaming_mode(false);
   app_host_close_files();
   esp_elf_deinit(&elf);
   vQueueDelete(app_host.events);
   vSemaphoreDelete(app_host.done);
+  vSemaphoreDelete(app_host.panel);
+  app_host.panel = nullptr;
   app_resume_ended(persistence);
   if (code != 0) {
     char what[48];

@@ -42,9 +42,9 @@ def tmp(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def elfs(tmp):
-    """The apps, built: hello from apps/, the misbehaving ones from test/sim/apps/"""
+    """The apps, built: hello and keys from apps/, the misbehaving ones from test/sim/apps/"""
     out = os.path.join(tmp, "elfs")
-    dirs = [os.path.join(ROOT, "apps", "hello")] + sorted(glob.glob(os.path.join(HERE, "apps", "*")))
+    dirs = [os.path.join(ROOT, "apps", a) for a in ("hello", "keys")] + sorted(glob.glob(os.path.join(HERE, "apps", "*")))
     subprocess.run([os.path.join(ROOT, "apps", "build.sh")] + dirs, check=True, env=dict(os.environ, OUT=out),
                    stdout=subprocess.DEVNULL)
     return {os.path.basename(p)[:-4]: open(p, "rb").read() for p in glob.glob(os.path.join(out, "*.elf"))}

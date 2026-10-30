@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-#define APP_API_VERSION 1
+#define APP_API_VERSION 2 // 2: keyboards (keyboard_enable, keyboard_status, hid_usage, APP_EVENT_KEYBOARD)
 
 // ---- app header ----
 
@@ -77,6 +77,7 @@ typedef enum {
   APP_EVENT_KEY_UP,
   APP_EVENT_TOUCH, // a touch bar gesture
   APP_EVENT_EXIT, // the user asked to leave (long press): save and return within APP_EXIT_GRACE_MS
+  APP_EVENT_KEYBOARD, // a keyboard came or went: `key` holds the APP_KBD_* bits connected now (API 2)
 } app_event_type_t;
 
 #define APP_EXIT_GRACE_MS 2000
@@ -99,12 +100,14 @@ typedef enum {
   APP_KEY_PAGE_DOWN,
   APP_KEY_F1, // F2..F12 follow
   APP_KEY_CHAR = 0x200, // printable: see utf8
+  APP_KEY_HID = 0x300, // a key of a USB or Bluetooth keyboard whose character depends on the layout: see hid_usage
 } app_key_t;
 
 #define APP_MOD_SHIFT 0x01
 #define APP_MOD_CTRL 0x02
 #define APP_MOD_ALT 0x04
 #define APP_MOD_META 0x08
+#define APP_MOD_ALTGR 0x10 // right Alt of a USB or Bluetooth keyboard (not APP_MOD_ALT): the layout's third level
 
 typedef enum {
   APP_TOUCH_LEFT,
@@ -125,7 +128,14 @@ typedef struct {
   char utf8[5]; // the character typed, NUL-terminated; empty for non-printable keys
   uint8_t zone; // app_touch_zone_t, for TOUCH
   uint8_t gesture; // app_gesture_t, for TOUCH
+  // For keys of a USB or Bluetooth keyboard: the HID usage (keyboard page, 0x04 = the key labelled A on a US
+  // layout), 0 otherwise. The firmware maps no layout: Enter, Escape, Backspace, Tab, Delete, the arrows, Home,
+  // End, Page Up/Down and F1..F12 come with their app_key_t, every other key as APP_KEY_HID (API 2)
+  uint8_t hid_usage;
 } app_event_t;
+
+#define APP_KBD_USB 0x01 // a USB keyboard on the X's port (needs an OTG adapter; the X powers it)
+#define APP_KBD_BLE 0x02 // a Bluetooth LE keyboard
 
 // ---- files ----
 
@@ -217,10 +227,26 @@ typedef struct app_api {
 
   // Ends the app now (does not return), as if app_main returned `code`
   void (*exit)(int code);
+
+  // ---- API 2 ----
+
+  // Keyboards (docs/apps.md "Keyboards"): `sources` APP_KBD_* to use, 0 to stop. USB: the port becomes a host
+  // only while no charger or computer powers it; Bluetooth: a pairing screen if no keyboard is bonded yet.
+  // Their keys come as KEY_DOWN / KEY_UP with hid_usage. Returns 0, or APP_ENOTSUP for a source the firmware lacks
+  int (*keyboard_enable)(uint32_t sources);
+  // The APP_KBD_* bits of the keyboards connected now
+  uint32_t (*keyboard_status)(void);
 } app_api_t;
 
 #ifdef __cplusplus
 }
+#endif
+
+// The event is copied into apps built for API 1: its size and offsets stay
+#ifdef __cplusplus
+static_assert(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
+#else
+_Static_assert(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
 #endif
 
 #endif // APP_API_H

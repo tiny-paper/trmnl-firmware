@@ -16,6 +16,7 @@
 #include <wifi_network.h>
 
 #include "app_host.h"
+#include "keyboards.h"
 
 app_host_t app_host;
 
@@ -30,8 +31,15 @@ static int screen_stride(void) {
   return screen_mode == APP_SCREEN_1BIT ? (bbep.width() + 7) / 8 : (bbep.width() + 1) / 2;
 }
 
+// The panel driver is also the IO expander's (the USB port reads the charger through it)
+struct panel_lock {
+  panel_lock() { xSemaphoreTake(app_host.panel, portMAX_DELAY); }
+  ~panel_lock() { xSemaphoreGive(app_host.panel); }
+};
+
 static uint8_t *screen_set_mode(app_screen_mode_t mode) {
   if (mode != APP_SCREEN_1BIT && mode != APP_SCREEN_GRAY4) return nullptr;
+  panel_lock lock;
   if (bbep.setMode(mode == APP_SCREEN_1BIT ? BB_MODE_1BPP : BB_MODE_4BPP) != BBEP_SUCCESS) return nullptr;
   screen_mode = mode;
   bbep.fillScreen(mode == APP_SCREEN_1BIT ? BBEP_WHITE : 0xf);
@@ -48,6 +56,7 @@ static int screen_refresh(const app_rect_t *rect, app_refresh_t how) {
     r = {rect->x, rect->y, rect->w, rect->h};
   }
   int rc;
+  panel_lock lock;
   if (how == APP_REFRESH_PARTIAL && screen_mode == APP_SCREEN_1BIT) {
     rc = bbep.partialUpdate(true, r.y, r.y + r.h - 1);
   } else {
@@ -313,6 +322,7 @@ static const app_api_t table = {
     app_log,         net_up,
     http_request,    setting_get,
     setting_set,     app_exit,
+    keyboards_enable, keyboards_status,
 };
 
 const app_api_t *app_api_table(void) {
