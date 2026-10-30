@@ -4,6 +4,7 @@ import os
 import re
 import zlib
 import sys
+import time
 
 import littlefs
 
@@ -85,16 +86,23 @@ def files_on_flash(flash_path):
     return out
 
 
+def slow_write(port, data):
+    """Blocks of 32 bytes with a pause: the serial RX buffer (256) drops what the firmware has not read yet"""
+    for i in range(0, len(data), 32):
+        port.write(data[i:i + 32])
+        time.sleep(0.15)
+
+
 def test_noise_and_a_partial_line_before_the_header_are_skipped(device, elfs):
     """Device 2026-10-30: `TAPP ERR bad header` for a good header; bytes were on the port before it"""
     sim = device({})
     port = receive_mode(sim, [])
     port.write(b"\x00\xff~~ boot noise\r\nrst:0x1 (POWERON)\n")  # whole noise lines: no reply at all
-    port.write(b"x" * 300)  # an over-long partial line (more than the line buffer), no newline
+    slow_write(port, b"x" * 300)  # an over-long partial line (more than the line buffer), no newline
     port.write(b"TAPP PU")  # a partial header, abandoned by a newline: the host starts over
     port.write(b"\r\n")
     assert port.read_reply(3) == "TAPP ERR bad header: got 54 41 50 50 20 50 55"
-    port.write(b"zz" + b"y" * 200)  # noise glued to the front of the real header, CR LF line end
+    slow_write(port, b"zz" + b"y" * 200)  # noise glued to the front of the real header, CR LF line end
     data = elfs["hello"]
     port.write(b"TAPP PUT hello.elf %d %08x\r\n" % (len(data), zlib.crc32(data)))
     assert port.read_reply(10) == "TAPP READY"
@@ -155,9 +163,11 @@ def test_a_bad_or_cut_off_upload_keeps_the_old_app(device, elfs):
     # refused headers
     for header, why in [(b"TAPP PUT ../x.elf 10 0", "bad name"), (b"TAPP PUT hello.elf 0 0", "empty"),
                         (b"TAPP PUT hello.elf 2097153 0", "too big"), (b"TAPP PUT hello.elf", "bad name"),
-                        (b"garbage", "bad header")]:
+                        (b"TAPP garbage", "bad header")]:
         port.write(header + b"\n")
         assert (port.read_reply(10) or "").startswith("TAPP ERR " + why), header
+    port.write(b"garbage\n")  # not a header at all: skipped, no reply
+    assert port.read_reply(2) is None
     # still answers a good one afterwards
     upload.upload("second.elf", elfs["hello"], port.write, port.read_reply)
     stop_receiving(sim)
