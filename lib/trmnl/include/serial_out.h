@@ -18,3 +18,9 @@ typedef struct {
 // Writes `n` bytes; returns how many were taken. Stops early when no room appeared for `stall_ms` in a row (the
 // host stopped reading): the rest is not written, nothing already queued is pushed out.
 size_t serial_out_write(const serial_out_port_t *p, const uint8_t *b, size_t n, uint32_t stall_ms);
+
+// HWCDC's TX ring on the X (default 256): a burst of log lines or an event log answer waits in it, not in write()
+#define SERIAL_TX_RING_BYTES 4096
+
+// The paced answer's stall time: a host that took nothing for this long is not reading
+#define SERIAL_OUT_STALL_MS 500

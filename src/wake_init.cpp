@@ -15,6 +15,7 @@
 #include <sleep_session.h>
 #include <touch_i2c_lock.h>
 #include <trmnl_log.h>
+#include <serial_out.h>
 #include <wake_init.h>
 
 #include "evlog.h"
@@ -64,6 +65,13 @@ uint32_t bootEarly(void) {
   Serial.begin(115200);
   wait_for_serial();
   Log.begin(LOG_LEVEL_VERBOSE, &Serial);
+#elif defined(BOARD_TRMNL_X)
+  // Without this, Log_* never reached the USB serial port on a shipped X (QA, the only other Log.begin, is skipped
+  // once Wi-Fi is saved) and Serial began only with an app (app_runner). HWCDC's TX ring is set before begin (resizing
+  // it later races its ISR); with no host reading it drops instead of blocking after one 100 ms wait (HWCDC.cpp).
+  Serial.setTxBufferSize(SERIAL_TX_RING_BYTES);
+  Serial.begin(115200);
+  Log.begin(LOG_LEVEL_INFO, &Serial);
 #endif
   Log_info("BL init success");
   return init_time;
