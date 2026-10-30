@@ -16,6 +16,19 @@
 #include <esp_crt_bundle.h>
 #include <esp_heap_caps.h>
 #include <esp_http_client.h>
+#include <http_open_error.h>
+#include <mbedtls/asn1.h>
+#include <mbedtls/bignum.h>
+#include <mbedtls/cipher.h>
+#include <mbedtls/dhm.h>
+#include <mbedtls/ecp.h>
+#include <mbedtls/lms.h>
+#include <mbedtls/md.h>
+#include <mbedtls/pem.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/pkcs7.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509.h>
 #include <radio_share.h>
 #include <stdarg.h>
 #include <sys/time.h>
@@ -279,6 +292,21 @@ static bool net_up(void) {
 
 bool app_host_net_up(void) { return net_up(); }
 
+// http_open_error.h keeps the codes it classifies without the IDF headers (native tests)
+static_assert(HTTP_OPEN_ESP_ERR_NO_MEM == ESP_ERR_NO_MEM, "ESP_ERR_NO_MEM");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_SSL_ALLOC_FAILED == MBEDTLS_ERR_SSL_ALLOC_FAILED, "SSL");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_PK_ALLOC_FAILED == MBEDTLS_ERR_PK_ALLOC_FAILED, "PK");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_X509_ALLOC_FAILED == MBEDTLS_ERR_X509_ALLOC_FAILED, "X509");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_ECP_ALLOC_FAILED == MBEDTLS_ERR_ECP_ALLOC_FAILED, "ECP");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_CIPHER_ALLOC_FAILED == MBEDTLS_ERR_CIPHER_ALLOC_FAILED, "CIPHER");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_MD_ALLOC_FAILED == MBEDTLS_ERR_MD_ALLOC_FAILED, "MD");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_PEM_ALLOC_FAILED == MBEDTLS_ERR_PEM_ALLOC_FAILED, "PEM");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_PKCS7_ALLOC_FAILED == MBEDTLS_ERR_PKCS7_ALLOC_FAILED, "PKCS7");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_DHM_ALLOC_FAILED == MBEDTLS_ERR_DHM_ALLOC_FAILED, "DHM");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_MPI_ALLOC_FAILED == MBEDTLS_ERR_MPI_ALLOC_FAILED, "MPI");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_ASN1_ALLOC_FAILED == MBEDTLS_ERR_ASN1_ALLOC_FAILED, "ASN1");
+static_assert(HTTP_OPEN_MBEDTLS_ERR_LMS_ALLOC_FAILED == MBEDTLS_ERR_LMS_ALLOC_FAILED, "LMS");
+
 static int http_request(const app_http_request_t *req, void *buf, size_t buf_len, app_http_response_t *resp) {
   if (!req || !req->url || !resp || (!buf && buf_len)) return APP_EINVAL;
   *resp = {APP_ENONET, 0, false};
@@ -308,11 +336,22 @@ static int http_request(const app_http_request_t *req, void *buf, size_t buf_len
     esp_http_client_set_header(client, name, value);
   }
   int rc = APP_ETIMEDOUT;
+  // Internal RAM before the TLS handshake (Wi-Fi, the BLE controller and DMA need it; mbedTLS uses PSRAM)
+  unsigned int_free = (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+               int_largest = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+               ext_largest = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
   esp_err_t open_rc = esp_http_client_open(client, req->body ? (int)req->body_len : 0);
-  // An app reports this as "no network" too: the log tells it from a failed net_up (TLS out of RAM, DNS, timeout)
-  if (open_rc != ESP_OK)
-    Log_event("Net: %s request failed to open: %s, internal RAM %u free", method, esp_err_to_name(open_rc),
-              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  if (open_rc != ESP_OK) {
+    int tls_code = 0, tls_flags = 0;
+    esp_err_t tls_rc = esp_http_client_get_and_clear_last_tls_error(client, &tls_code, &tls_flags);
+    rc = http_open_app_error({(int)open_rc, (int)tls_rc, tls_code});
+    // Event text is cut at 100 characters, the X's log screen earlier: the cause first, then the codes and the
+    // RAM measured before the open (internal free/largest block, PSRAM largest block)
+    Log_event("Net: %s open: %s, 0x%x tls 0x%x -0x%x, int %u/%u, psram %u", method,
+              rc == APP_ENOMEM ? "no memory" : "failed", (unsigned)open_rc, (unsigned)tls_rc, (unsigned)-tls_code,
+              int_free, int_largest, ext_largest);
+    Log_info("Net: open error %s, ESP-TLS %s", esp_err_to_name(open_rc), esp_err_to_name(tls_rc));
+  }
   if (open_rc == ESP_OK) {
     if (!req->body || esp_http_client_write(client, (const char *)req->body, (int)req->body_len) == (int)req->body_len) {
       esp_http_client_fetch_headers(client);

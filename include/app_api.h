@@ -163,7 +163,7 @@ typedef struct {
 } app_http_request_t;
 
 typedef struct {
-  int status; // HTTP status, or < 0 for a transport error (no Wi-Fi, DNS, TLS, timeout)
+  int status; // HTTP status, or < 0: APP_ENONET (no Wi-Fi), APP_ENOMEM (no RAM for TLS), APP_ETIMEDOUT (DNS, TLS)
   size_t body_len; // bytes written to the buffer
   bool truncated; // the body did not fit
 } app_http_response_t;
