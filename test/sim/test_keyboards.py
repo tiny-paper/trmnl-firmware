@@ -18,7 +18,7 @@ def start_keys(sim):
     asleep(sim)
     sim.api("POST", "/dock", {"docked": True})
     start = start_app(sim, ["keys"], "keys")
-    must_log(sim, r"keys: usb keyboard enable 0", start)
+    must_log(sim, r"keys: keyboard enable", start)
     must_log(sim, r"USB keys: input power: device mode", start)
     return start
 

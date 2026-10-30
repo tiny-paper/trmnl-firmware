@@ -50,12 +50,21 @@ def tap_until(sim, zone, regex):
 
 
 def choose(sim, labels, label):
-    """On a menu screen showing `labels`, arrow on the first: moves down to `label` and selects it"""
-    for i in range(labels.index(label)):
-        move = r"Menu: %s -> %s" % (re.escape(labels[i]), re.escape(labels[i + 1]))
-        start = since(sim)
-        tap_until(sim, "right", r"Menu: ")
-        must_log(sim, move, start, 5)
+    """On a menu screen showing `labels`, arrow on the first: moves right to `label` and selects it. Follows the
+    arrow by the menu's own log lines, so a tap that only shows late (and then counts twice) is corrected by going
+    on around the menu instead of failing; a dropped tap is tapped again after 5 s (the menu closes after 15 s)."""
+    current, pos = labels[0], since(sim)
+    for _ in range(3 * len(labels)):
+        if current == label:
+            break
+        idle(sim)
+        sim.touch("right")
+        r = sim.wait(5, console=r"Menu: .* -> ", since=pos)
+        while r.get("ok"):  # every move logged so far, late ones included
+            current = r["line"]["text"].split(" -> ")[-1].strip()
+            pos = r["line"]["i"] + 1
+            r = sim.wait(0.3, console=r"Menu: .* -> ", since=pos)
+    assert current == label, "menu arrow on %r, not %r:\n%s" % (current, label, sim.log_tail())
     start = since(sim)
     tap_until(sim, "center", r"Menu: chose")
     must_log(sim, r"Menu: chose %s" % re.escape(label), start, 5)
