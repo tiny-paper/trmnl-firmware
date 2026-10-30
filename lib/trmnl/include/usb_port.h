@@ -79,3 +79,19 @@ void usb_port_init(usb_port_t *p);
 usb_port_mode_t usb_port_step(usb_port_t *p, uint32_t now_ms, const usb_port_input_t *in);
 
 const char *usb_port_why_str(usb_port_why_t why);
+
+// ---- the charger reading ----
+
+// The charger's power-good pin sits on the IO expander behind the panel's lock (app_host.panel). Each poll tries the
+// lock without waiting: `got` true with the pin's level in `input_power`, false when the lock was busy.
+#define USB_POWER_STALE_MS 1000 // no reading this long counts as unknown
+
+typedef struct {
+  usb_power_t last;
+  uint32_t at; // when `last` was read
+} usb_power_reading_t;
+
+void usb_power_reading_init(usb_power_reading_t *r);
+
+// One poll at `now_ms`; returns what usb_port_input_t.power gets
+usb_power_t usb_power_update(usb_power_reading_t *r, uint32_t now_ms, bool got, bool input_power);

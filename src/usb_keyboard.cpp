@@ -18,7 +18,6 @@
 
 #define IOX_CHG_PG       0 // input, low: the charger has input power (VBUS from a charger or computer)
 #define IOX_OTG_EN       1 // output, high: the charger's boost drives VBUS
-#define POWER_STALE_MS   1000 // a reading older than this (the panel held the bus) counts as unknown
 #define STOP_DEADLINE_MS 1000 // the USB stack must be down by then, else a restart
 
 static TaskHandle_t port_task;
@@ -42,17 +41,14 @@ static void expander_unlock(void) {
 }
 
 static usb_power_t read_power(void) {
-  static usb_power_t last = USB_POWER_UNKNOWN;
-  static uint32_t last_at;
-  if (expander_lock(0)) {
+  static usb_power_reading_t reading = {USB_POWER_UNKNOWN, 0};
+  bool got = expander_lock(0), input_power = false;
+  if (got) {
     bbep.ioPinMode(IOX_CHG_PG, INPUT);
-    last = bbep.ioRead(IOX_CHG_PG) == 0 ? USB_POWER_YES : USB_POWER_NO;
-    last_at = millis();
+    input_power = bbep.ioRead(IOX_CHG_PG) == 0;
     expander_unlock();
-  } else if (millis() - last_at > POWER_STALE_MS) {
-    last = USB_POWER_UNKNOWN;
   }
-  return last;
+  return usb_power_update(&reading, millis(), got, input_power);
 }
 
 static bool boost(bool on, uint32_t wait_ms) {

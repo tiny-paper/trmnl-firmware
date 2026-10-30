@@ -88,3 +88,18 @@ const char *usb_port_why_str(usb_port_why_t why) {
   }
   return "?";
 }
+
+void usb_power_reading_init(usb_power_reading_t *r) {
+  r->last = USB_POWER_UNKNOWN;
+  r->at = 0;
+}
+
+usb_power_t usb_power_update(usb_power_reading_t *r, uint32_t now, bool got, bool input_power) {
+  if (got) {
+    r->last = input_power ? USB_POWER_YES : USB_POWER_NO;
+    r->at = now;
+  } else if ((uint32_t)(now - r->at) > USB_POWER_STALE_MS) {
+    r->last = USB_POWER_UNKNOWN;
+  }
+  return r->last;
+}
