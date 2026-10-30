@@ -32,7 +32,7 @@ Errors are negative `APP_E*` values.
 |---|---|
 | keys | KEY_DOWN / KEY_UP with `hid_usage` (HID keyboard page) and `modifiers` (`APP_MOD_ALTGR` = right Alt). No layout in the firmware: Enter, Escape, Backspace, Tab, Delete, arrows, Home, End, Page Up/Down, F1..F12 get their `app_key_t`, every other key is `APP_KEY_HID` with an empty `utf8`; the app maps its layout (`lib/trmnl/src/hid_keys.cpp`) |
 | removed mid-typing | KEY_UP for every key still held, then `APP_EVENT_KEYBOARD` with the bits still connected |
-| Bluetooth LE | not yet: `keyboard_enable(APP_KBD_BLE)` returns `APP_ENOTSUP` |
+| Bluetooth LE | not yet: `keyboard_enable(APP_KBD_BLE)` returns `APP_ENOTSUP`. Pairing and reconnect rules are in `lib/trmnl/include/ble_pair.h` (tested). Open: BT is off in `sdkconfigs/sdkconfig.TRMNL_X`; IDF 5.5's NimBLE HID host (`esp_hid/src/nimble_hidh.c`) starts service discovery right after connecting and handles no pairing, passkey or encryption events, so a keyboard that needs encryption fails there: it needs a patched copy (security first, then discovery) |
 
 USB port (`lib/trmnl/include/usb_port.h`, applied by `src/usb_keyboard.cpp`): device mode (charging, serial, flashing) is the default.
 
