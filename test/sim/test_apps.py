@@ -63,7 +63,7 @@ def start_app(sim, apps, name):
     must_log(sim, r"menu_show_screen end", start)
     choose(sim, MAIN_MENU, "Apps...")
     must_log(sim, r"menu_show_screen end", start)
-    choose(sim, sorted(apps) + ["Back"], name)
+    choose(sim, sorted(apps) + ["Install via Wi-Fi", "Back"], name)
     return start
 
 
