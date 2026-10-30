@@ -28,6 +28,12 @@ ALLOWED = {
     "Apps: %s did not exit within %d ms - restarting into TRMNL": "TRMNL's own name in a log line",
 }
 
+# The same, in one file only: an exact literal there (file, text, reason)
+ALLOWED_IN = [
+    ("src/webshare_install.cpp", "/apps", "the upload URL of Install via Wi-Fi (HTTP route, not the folder)"),
+    ("src/webshare_install_page.h", "&gt;/apps?", "that URL in the page's curl example"),
+]
+
 
 def rel(p):
     return str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else p.name
@@ -85,6 +91,9 @@ def leftovers(files, values):
         for lit in literals(text):
             for allowed in ALLOWED:
                 lit = lit.replace(allowed, "")
+            for f, allowed, _why in ALLOWED_IN:
+                if rel(p) == f:
+                    lit = "" if lit == allowed else lit.replace(allowed, "")
             hits = [w for w in sorted(words) if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9])" % re.escape(w), lit)]
             if hits:
                 found.append("%s: %r has %s" % (rel(p), lit[:60], hits))

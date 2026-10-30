@@ -266,7 +266,7 @@ enum main_menu_item_t {
   MAIN_MENU_NEXT_SCREEN,
   MAIN_MENU_PREVIOUS_SCREEN,
   MAIN_MENU_TUTORIAL, // only with a control scheme that has a tutorial
-  MAIN_MENU_APPS,     // its apps, and receiving one over USB
+  MAIN_MENU_APPS,     // its apps, receiving one over USB, Install via Wi-Fi
   MAIN_MENU_SPECIAL,
   MAIN_MENU_SETTINGS,
   MAIN_MENU_CLOSE,
@@ -539,6 +539,7 @@ enum menu_outcome_t {
   MENU_OUTCOME_APP,
   MENU_OUTCOME_RESET_WIFI,
   MENU_OUTCOME_SHUT_DOWN,
+  MENU_OUTCOME_INSTALL, // Apps > Install via Wi-Fi
   MENU_OUTCOME_CLOSE, // Close on the main menu, or a timeout on any screen
 };
 
@@ -612,12 +613,14 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       break;
     }
     case MENU_SCREEN_APPS: {
-      const char *labels[APPS_MAX + 3];
+      const char *labels[APPS_MAX + 4];
       for (int i = 0; i < app_count; i++) {
         labels[i] = app_names[i];
       }
       int n = app_count;
       labels[n++] = "Receive over USB...";
+      const int install_item = n;
+      labels[n++] = "Install via Wi-Fi";
       ble_pair_peer_t bond;
       static char forget[48];
       int forget_item = -1;
@@ -629,6 +632,7 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       labels[n++] = "Back";
       int item = run_menu_screen(labels, n, true);
       if (item < 0) return MENU_OUTCOME_CLOSE;
+      if (item == install_item) return MENU_OUTCOME_INSTALL;
       if (item == n - 1) { // Back
         screen = MENU_SCREEN_MAIN;
         break;
@@ -738,6 +742,9 @@ void menu_open(const menu_controls_t &controls) {
     break;
   case MENU_OUTCOME_APP:
     apps_run(app_paths[app_chosen]); // does not return
+    break;
+  case MENU_OUTCOME_INSTALL:
+    apps_install_session(); // does not return
     break;
   case MENU_OUTCOME_RESET_WIFI:
     Log_info("Resetting WiFi from the menu");

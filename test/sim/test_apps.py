@@ -76,7 +76,7 @@ def start_app(sim, apps, name):
 
 def apps_menu(apps):
     """The Apps submenu's items with `apps` in /apps"""
-    return sorted(apps) + ["Receive over USB...", "Back"]
+    return sorted(apps) + ["Receive over USB...", "Install via Wi-Fi", "Back"]
 
 
 def long_press(sim):

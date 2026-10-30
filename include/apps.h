@@ -22,6 +22,10 @@ int apps_receive(bool (*cancel)(void));
 // restarts when the app does not end within APP_EXIT_GRACE_MS of a long press.
 void apps_run(const char *path);
 
+// The menu's "Install via Wi-Fi": starts the Wi-Fi page in its apps profile, shows where it is, the code and a QR of
+// the one-time login link, until a long press (or 15 min idle). Then back to TRMNL; does not return.
+void apps_install_session(void);
+
 // At a wake: runs the app that was running before a restart (apps_run, does not return), unless
 // it did not get past its start, or the restart was a crash. Returns if there is none.
 void apps_resume_if_due(void);

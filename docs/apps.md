@@ -144,6 +144,27 @@ header is stale, a key is missing, or one of these values (or a `#define` of its
 | `usb_keyboard.probe_ms` | `USB_PORT_PROBE_MS` | 3000 | host mode without a keyboard this long: back to device mode |
 | `usb_keyboard.retry_ms` | `USB_PORT_RETRY_MS` | 10000 | then this long before the next probe |
 
+## Install via Wi-Fi (proof of concept)
+
+Menu > Apps > "Install via Wi-Fi" starts the same web server in an apps profile: home Wi-Fi first, else the access
+point "Writer". The X shows "Online at http://<ip>/" (or the network to join), the 6-digit code and a QR of the
+one-time login link; a long press, 15 min idle, or 15 wrong codes stop it. The page lists `/apps` (name, size, date)
+and takes `.elf` files only. No manifest, no permissions, no update URLs.
+
+| Rule | How |
+|---|---|
+| Only apps | the file name must be `<name>.elf` (letters, digits, `-`, `_`, 24 at most); size up to 2 MB |
+| Checked first | the file goes to `apps/.webshare.tmp`, then `app_elf_check` (the loader's own checker) runs over it; a refused file is deleted and the page shows the checker's reason; the installed app is not touched |
+| Replace | an app of the same name becomes `<name>.elf.bak` (an older `.bak` of a never started install stays: it is the last version that worked), then the temp file is renamed into place |
+| First start | `.bak` is deleted once the new app ran 5 s or returned 0. If it does not load, returns an error, or crashes while starting (`appi_start` in NVS, checked at the next wake), `.bak` is put back and the error screen / the page says so. A power loss between the two renames is repaired at the next wake |
+| Delete | the page's Delete removes `<name>.elf` and its `.bak` |
+| curl | `curl -F file=@writer.elf "http://<ip>/apps?t=<token>"` (the token is the one in the QR link, good for one call) or `curl -F file=@writer.elf "http://<ip>/apps?code=123456"` (as often as needed; 5 wrong codes lock it). The answer is `{"ok":true,"name":"writer.elf"}` or `{"error":"refused: file is truncated"}`. Without a credential: 401 |
+| Browser | cookie after the QR link or the code, plus the `X-Writer` header on changes |
+
+Code: `src/webshare_install.cpp` (routes, page in `webshare_install_page.h`), `lib/trmnl/src/webshare_apps.cpp`
+(checks, `.bak`), `lib/trmnl/src/app_install.cpp` (start bookkeeping, hooks in `src/app_runner.cpp`), QR by
+`lib/qrcodegen` (Nayuki, MIT, vendored unmodified).
+
 ## Rules the firmware enforces
 
 | Case | Result |
@@ -222,6 +243,9 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
 | USB drive: FAT image (damage, random flips, mtools/dosfstools interop), names, conflicts, full disk, power loss at every write, when a showing takes changes | `test/test_drive_*` | `pio test -e native -f 'test_drive_*'` |
 | USB drive on the simulated X: journal finished or dropped on the real LittleFS, power loss in it, a drive no computer takes (the sim has no USB OTG) | `test/sim/test_drive.py` | below |
+
+| paths, resume state, serial keys | `test/test_app_path`, `test_app_resume`, `test_app_keys` | `pio test -e native -f test_app_*` |
+| Install via Wi-Fi: only .elf, checker refusal, size limit, .bak kept and restored on a failed or crashed first start, token/code needed | `test/test_webshare_apps` | `pio test -e native -f test_webshare_apps` |
 | Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
@@ -323,3 +347,20 @@ Needs an app that calls `webshare_start` and shows `status.code`. Take a phone a
 | Pick the POP, type a wrong passkey + Enter | "Pairing failed: try again", the list again |
 | Pick the POP, type nothing for 40 s | "The passkey was not typed in time", the list again |
 | Not proven by any test | the X's identity address stays the same (public), so the POP finds it after a restart; a keyboard with a resolvable private address (none of Logitech's so far) may not reconnect |
+
+### Install via Wi-Fi (nothing of this ran on a device or in the simulator)
+
+| Step | Look for |
+|---|---|
+| Menu > Apps with no app in /apps | the entry "Install via Wi-Fi" is there (it used to hide the whole Apps item) |
+| Choose it with the home Wi-Fi on | screen: "Install apps via Wi-Fi", "Online at http://<ip>/", "Code: nnnnnn", a QR on the right, "Long press to stop" |
+| Scan the QR with a phone on the same Wi-Fi | the page opens already logged in and lists /apps; scanning the same QR a second time asks for the code |
+| Choose it with the router off | text asks to join "Writer" and open http://4.3.2.1/ |
+| Upload hello.elf | "installed"; Apps menu lists it; it starts |
+| Upload a text file renamed to .elf, a truncated hello.elf, a file named x.bin | refused with the checker's reason / name refused; /apps unchanged |
+| Upload a changed hello.elf over the old | page says "older version kept"; after the new one ran 5 s the note is gone (file gone in flash) |
+| Upload `test/sim/apps/crash` build under the name of a good app, start it | panic, restart, TRMNL; the good app is back (page shows the note) |
+| Upload an app returning 7 over a good one, start it | error screen says "the previous version was put back" |
+| `curl -F file=@hello.elf "http://<ip>/apps?code=<code>"` | `{"ok":true,...}`; without `?code`: 401; `?t=<token from the QR link>` works once |
+| Cut Wi-Fi during a big upload | no `.webshare.tmp` after the next start, installed app unchanged |
+| Long press | network gone, back to TRMNL |

@@ -1,0 +1,1 @@
+nayuki QR-Code-generator v1.8.0 (https://github.com/nayuki/QR-Code-generator), c/qrcodegen.[ch], unmodified. License: LICENSE (MIT).
