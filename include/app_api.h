@@ -26,22 +26,28 @@ extern "C" {
 // ---- app header ----
 
 // Every app holds one app_info_t named `app_info`, in the ELF section APP_INFO_SECTION, which the
-// firmware reads before loading anything. APP_INFO() declares it.
+// firmware reads before loading anything. APP_INFO() declares it; the link keeps it with
+// -Wl,--undefined=app_info (apps/build.sh).
 #define APP_INFO_SECTION ".trmnl_app_info"
 #define APP_INFO_MAGIC 0x50504154u // "TAPP" in little-endian
 
 typedef struct {
   uint32_t magic; // APP_INFO_MAGIC
   uint32_t api_version; // the APP_API_VERSION the app was built against
-  uint32_t stack_size; // bytes for the app's task; 0 for the default (APP_DEFAULT_STACK)
+  uint32_t stack_size; // bytes for the app's task (internal RAM); 0 for the default (APP_DEFAULT_STACK)
   char name[32]; // shown in the Apps menu, NUL-terminated
 } app_info_t;
 
 #define APP_DEFAULT_STACK (16 * 1024)
-#define APP_MAX_STACK (128 * 1024)
+#define APP_MAX_STACK (64 * 1024)
 
+#ifdef __cplusplus
+#define APP_INFO_LINKAGE extern "C"
+#else
+#define APP_INFO_LINKAGE
+#endif
 #define APP_INFO(app_name, stack)                                                                                      \
-  __attribute__((used, retain, section(APP_INFO_SECTION))) const app_info_t app_info = {                             \
+  APP_INFO_LINKAGE __attribute__((used, section(APP_INFO_SECTION))) const app_info_t app_info = {                      \
       APP_INFO_MAGIC, APP_API_VERSION, (stack), app_name}
 
 // ---- screen ----
