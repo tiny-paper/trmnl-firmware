@@ -485,6 +485,9 @@ static void handle(const msg_t &m) {
     hogp.state = HOGP_IDLE;
     break;
   case M_ENC:
+    // status 0: encrypted; BLE_HS_SM_US_ERR(x) = 0x500 + x (our side refused), BLE_HS_SM_PEER_ERR(x) = 0x600 + x (the
+    // keyboard's reason, SMP codes: 0x03 confirm value failed, 0x05 pairing not supported, 0x08 unspecified ...)
+    Log_info("BLE keys: encryption change, status %d (0x%x)%s", m.status, (unsigned)m.status, ours ? "" : ", not ours");
     if (ours) hogp_do(hogp_encrypted(&hogp, m.status, now));
     break;
   case M_PASSKEY:
@@ -494,7 +497,8 @@ static void handle(const msg_t &m) {
       hogp_do(hogp_encrypted(&hogp, BLE_HS_ERR_HCI_BASE + BLE_ERR_PINKEY_MISSING, now));
       break;
     }
-    Log_info("BLE keys: passkey shown for %s", pair.target.name);
+    Log_info("BLE keys: passkey %06lu shown for %s, injected (rc %d)", (unsigned long)m.passkey, pair.target.name,
+             m.status);
     apply(ble_pair_passkey(&pair, m.passkey));
     break;
   case M_SVC:
