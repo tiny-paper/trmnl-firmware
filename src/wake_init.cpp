@@ -24,6 +24,7 @@
 #ifdef BOARD_TRMNL_X
 #include <Wire.h>
 #include <apps.h>
+#include "serial_watch_hw.h"
 #include "usb_port_role.h"
 
 #include "touchbar_actions.h"
@@ -72,6 +73,7 @@ uint32_t bootEarly(void) {
   Serial.setTxBufferSize(SERIAL_TX_RING_BYTES);
   Serial.begin(115200);
   Log.begin(LOG_LEVEL_INFO, &Serial);
+  serial_watch_start(); // HWCDC can stop sending for good while RX works (serial_watch.h)
 #endif
   Log_info("BL init success");
   return init_time;
