@@ -1,3 +1,5 @@
+#include <app_sleep_gate.h>
+#include "evlog.h"
 #include "menu.h"
 
 // The TRMNL X is the only board with a control scheme for the menu so far. Another board needs one
@@ -551,7 +553,7 @@ static int app_chosen = -1;
 
 static bool receive_cancel(void) { return menu_controls->read() != menu_input_t::NONE; }
 
-// The Receive over USB screen: waits for apps/upload.py until a tap or 2 minutes without an upload
+// The Receive over USB screen: waits for apps/upload.py until a tap or 10 minutes without an upload
 static void receive_apps(void) {
   static const char *const labels[] = {"Stop"};
   static const char *const body[] = {
@@ -561,7 +563,9 @@ static void receive_apps(void) {
   };
   menu_view_t view = {labels, 1, 0, body, 3, menu_controls->hints, false};
   menu_show_screen(view, true);
+  app_sleep_gate_screen("Receive over USB");
   apps_receive(receive_cancel);
+  app_sleep_gate_screen(nullptr);
   app_count = apps_list(app_names, app_paths, APPS_MAX);
 }
 

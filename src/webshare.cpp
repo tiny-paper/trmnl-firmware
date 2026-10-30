@@ -3,6 +3,8 @@
 // only connects them to the network and LittleFS.
 #ifdef BOARD_TRMNL_X
 
+#include <app_sleep_gate.h>
+#include "evlog.h"
 #include "webshare.h"
 
 #include <ArduinoJson.h>
@@ -418,6 +420,7 @@ static void stop_locked() {
     MDNS.end();
   }
   Log_info("webshare: off");
+  evlog_add("webshare: off");
 }
 
 // Switches the page off after WS_IDLE_MS without a request, and drops an upload that stopped coming
@@ -430,8 +433,11 @@ static void watch_task(void *) {
       ws_upload_abort(&upload);
       upload_owner = nullptr;
     }
-    if (S.running && (ws_idle_expired(S.last_request, millis()) || S.auth.fails >= WS_MAX_FAILS)) {
+    // never while an upload runs: it would end as "no connection" in the browser
+    bool idle = !upload_owner && ws_idle_expired(S.last_request, millis());
+    if (S.running && (idle || S.auth.fails >= WS_MAX_FAILS)) {
       Log_info("webshare: idle or locked out, switching off");
+      evlog_add("webshare: switched off, %s", idle ? "idle" : "too many wrong codes");
       stop_locked();
     }
     xSemaphoreGive(S.lock);

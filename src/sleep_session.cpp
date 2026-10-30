@@ -42,6 +42,11 @@
 void goToSleep(void) {
   // An app owns the device until it exits (app_sleep_gate.h): no TRMNL sleep under it
   if (app_sleep_gate_ask("goToSleep") == APP_SLEEP_REFUSED) {
+    if (app_sleep_gate_screen_name()) {
+      Log_error("Sleep: refused, install screen (%s is on)", app_sleep_gate_screen_name());
+      evlog_add("Sleep: refused, install screen (%s)", app_sleep_gate_screen_name());
+      return;
+    }
     Log_error("Sleep: refused, the app %s is running (it keeps the device until it exits)", app_sleep_gate_app());
     return;
   }

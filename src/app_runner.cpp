@@ -394,15 +394,20 @@ void apps_install_session(void) {
   draw_qr(st.login_url, bbep.width() / 2 + x, y);
   bbep.fullUpdate(CLEAR_FAST, false);
 
+  app_sleep_gate_screen("Install via Wi-Fi");
   Log_info("Apps: install screen shown, a long press stops it");
   touchbar_input_begin("Install via Wi-Fi");
   while (true) {
     delay(APP_POLL_MS * 5);
     if (pump_touch()) break;
     webshare_status(&st);
-    if (!st.running) break; // idle for 15 minutes, or too many wrong codes
+    if (!st.running) { // idle for 15 minutes, or too many wrong codes
+      evlog_add("Apps: install page stopped by itself (idle or locked out)");
+      break;
+    }
   }
   touchbar_input_end();
+  app_sleep_gate_screen(nullptr);
   webshare_stop();
   show_last_image_and_sleep();
 }

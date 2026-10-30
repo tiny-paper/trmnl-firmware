@@ -13,5 +13,8 @@ void app_sleep_gate_app_started(const char *name);
 void app_sleep_gate_app_ended(void);
 // The app running now, or nullptr
 const char *app_sleep_gate_app(void);
+// A firmware screen that must keep the device awake (Install via Wi-Fi, Receive over USB); nullptr leaves it
+void app_sleep_gate_screen(const char *name);
+const char *app_sleep_gate_screen_name(void);
 // A sleep or restart asked for `reason`
 app_sleep_verdict_t app_sleep_gate_ask(const char *reason);

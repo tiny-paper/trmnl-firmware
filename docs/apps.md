@@ -196,6 +196,7 @@ Code: `src/webshare_install.cpp` (routes, page in `webshare_install_page.h`), `l
 | sections larger than the largest free PSRAM block, or a relocation the loader cannot apply | error screen |
 | long press on the touch bar | `APP_EVENT_EXIT`; after `APP_EXIT_GRACE_MS` (2 s) the device restarts into TRMNL |
 | TRMNL's sleep while an app runs | refused (`app_sleep_gate.h`, log `Sleep: refused, the app <name> is running`): the runner owns the device until the app exits |
+| TRMNL's sleep while Install via Wi-Fi or Receive over USB is on screen | refused (`app_sleep_gate_screen`, log `Sleep: refused, install screen`); the page is not switched off during an upload; Receive over USB waits 10 min |
 | app ran 5 s, then the device restarted | resumed (path in NVS `app_last`, flag `app_resume`) |
 | app crashes while starting, or any panic or watchdog reset | not resumed: the flag is cleared before each start and set only after 5 s |
 | no touch or key reached the app before the restart (NVS `app_input`) | not resumed: "App stopped ... not resumed" on screen, then TRMNL (a dead touch bar must not trap the user) |
@@ -280,7 +281,7 @@ status: the switch can take the window of a touch event, and that touch then nev
 | on the simulated X, touch through the emulated IQS323: Install via Wi-Fi and Receive over USB end on a long press, a middle tap and a long press reach an app right after it started; no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
 | event log: wrap and bounded size, restart, damaged file, repeats, last lines that fit, write rate limit | `test/test_evlog_ring` | `pio test -e native -f test_evlog_ring` |
 | event log on the simulated X: `TAPP EVLOG` lists the app's start across a restart, `CLEAR` | `test/sim/test_evlog.py` | below |
-| no TRMNL sleep while an app runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |
+| no TRMNL sleep while an app or install screen runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
 | USB drive: FAT image (damage, random flips, mtools/dosfstools interop), names, conflicts, full disk, power loss at every write, when a showing takes changes | `test/test_drive_*` | `pio test -e native -f 'test_drive_*'` |

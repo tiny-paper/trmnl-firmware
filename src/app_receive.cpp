@@ -17,7 +17,7 @@
 
 #include "webshare.h" // webshare_fs_root
 
-#define RECEIVE_IDLE_MS (2u * 60u * 1000u) // no upload started for this long: back to the menu
+#define RECEIVE_IDLE_MS (10u * 60u * 1000u) // no upload started for this long: back to the menu
 
 static void reply(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void reply(const char *fmt, ...) {
