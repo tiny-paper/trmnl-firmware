@@ -3,7 +3,7 @@
 
 #include <app_api.h>
 
-#include "../common/draw.h"
+#include "common/draw.h"
 
 APP_INFO("Hello", 0);
 

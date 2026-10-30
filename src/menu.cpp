@@ -7,6 +7,7 @@
 
 #include <Preferences.h>
 #include <WifiCaptive.h>
+#include <apps.h>
 #include <battery.h>
 #include <bl.h>
 #include <config.h>
@@ -264,6 +265,7 @@ enum main_menu_item_t {
   MAIN_MENU_NEXT_SCREEN,
   MAIN_MENU_PREVIOUS_SCREEN,
   MAIN_MENU_TUTORIAL, // only with a control scheme that has a tutorial
+  MAIN_MENU_APPS,     // only with apps in /apps
   MAIN_MENU_SPECIAL,
   MAIN_MENU_SETTINGS,
   MAIN_MENU_CLOSE,
@@ -273,7 +275,7 @@ enum main_menu_item_t {
 static const char *const main_menu_labels[MAIN_MENU_COUNT] = {
     "Next Screen", "Previous Screen",
     nullptr, // the tutorial's own item
-    "Special...",  "Settings...",     "Close",
+    "Apps...",     "Special...",      "Settings...", "Close",
 };
 
 // The Special submenu: the special functions, then Back, to the main menu
@@ -521,6 +523,7 @@ static void menu_shut_down(void) {
 
 enum menu_screen_t {
   MENU_SCREEN_MAIN,
+  MENU_SCREEN_APPS,
   MENU_SCREEN_SPECIAL,
   MENU_SCREEN_SETTINGS,
   MENU_SCREEN_DIAGNOSTICS,
@@ -532,12 +535,20 @@ enum menu_outcome_t {
   MENU_OUTCOME_NEXT_SCREEN,
   MENU_OUTCOME_PREVIOUS_SCREEN,
   MENU_OUTCOME_SPECIAL_FUNCTION,
+  MENU_OUTCOME_APP,
   MENU_OUTCOME_RESET_WIFI,
   MENU_OUTCOME_SHUT_DOWN,
   MENU_OUTCOME_CLOSE, // Close on the main menu, or a timeout on any screen
 };
 
-// Runs the menu screens until one ends the menu. Sets *function for MENU_OUTCOME_SPECIAL_FUNCTION.
+// The Apps submenu: the apps in /apps (apps.h), then Back
+static char app_names[APPS_MAX][32];
+static char app_paths[APPS_MAX][APPS_PATH_MAX];
+static int app_count = 0;
+static int app_chosen = -1;
+
+// Runs the menu screens until one ends the menu. Sets *function for MENU_OUTCOME_SPECIAL_FUNCTION,
+// app_chosen for MENU_OUTCOME_APP.
 static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
   const char *special_labels[SPECIAL_MENU_COUNT];
   for (int i = 0; i < SPECIAL_MENU_COUNT; i++) {
@@ -550,6 +561,7 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
   int main_count = 0;
   for (int i = 0; i < MAIN_MENU_COUNT; i++) {
     if (i == MAIN_MENU_TUTORIAL && !menu_controls->tutorial) continue;
+    if (i == MAIN_MENU_APPS && app_count == 0) continue;
     main_labels[main_count] = i == MAIN_MENU_TUTORIAL ? menu_controls->tutorial->item : main_menu_labels[i];
     main_items[main_count++] = (main_menu_item_t)i;
   }
@@ -569,6 +581,9 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       case MAIN_MENU_TUTORIAL:
         run_tutorial(true);
         return MENU_OUTCOME_CLOSE; // closing the tutorial closes the menu, as does its timeout
+      case MAIN_MENU_APPS:
+        screen = MENU_SCREEN_APPS;
+        break;
       case MAIN_MENU_SPECIAL:
         screen = MENU_SCREEN_SPECIAL;
         break;
@@ -579,6 +594,21 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
         return MENU_OUTCOME_CLOSE;
       }
       break;
+    }
+    case MENU_SCREEN_APPS: {
+      const char *labels[APPS_MAX + 1];
+      for (int i = 0; i < app_count; i++) {
+        labels[i] = app_names[i];
+      }
+      labels[app_count] = "Back";
+      int item = run_menu_screen(labels, app_count + 1, true);
+      if (item < 0) return MENU_OUTCOME_CLOSE;
+      if (item == app_count) { // Back
+        screen = MENU_SCREEN_MAIN;
+        break;
+      }
+      app_chosen = item;
+      return MENU_OUTCOME_APP;
     }
     case MENU_SCREEN_SPECIAL: {
       int item = run_menu_screen(special_labels, SPECIAL_MENU_COUNT, true);
@@ -654,6 +684,7 @@ void menu_open(const menu_controls_t &controls) {
   // menu, and the gauge isn't read without a battery detected
   battery_count = detect_battery_count();
   battery().gaugeInit();
+  app_count = apps_list(app_names, app_paths, APPS_MAX);
   if (controls.begin) controls.begin();
   menu_outcome_t outcome = run_menu_screens(&function);
   if (controls.end) controls.end();
@@ -670,6 +701,9 @@ void menu_open(const menu_controls_t &controls) {
     // The API request names this function, so the server runs it rather than the saved one
     special_function = function;
     special_function_chosen = true;
+    break;
+  case MENU_OUTCOME_APP:
+    apps_run(app_paths[app_chosen]); // does not return
     break;
   case MENU_OUTCOME_RESET_WIFI:
     Log_info("Resetting WiFi from the menu");
