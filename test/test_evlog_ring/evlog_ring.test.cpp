@@ -1,6 +1,7 @@
 #include <evlog_ring.h>
 #include <stdio.h>
 #include <string.h>
+#include <trmnl_crc32.h>
 #include <unity.h>
 
 static uint8_t data[EVLOG_DATA_BYTES], data2[EVLOG_DATA_BYTES];
@@ -108,6 +109,34 @@ void test_a_damaged_file_loads_as_an_empty_log() {
   TEST_ASSERT_EQUAL(2, evlog_ring_count(&after));
 }
 
+// A file written by a firmware with a ring bug: the CRC is right, the records are not
+static void reseal(uint8_t *image) {
+  evlog_hdr_t h;
+  memcpy(&h, image, sizeof(h));
+  h.crc = 0;
+  h.crc = trmnl_crc32(trmnl_crc32(0, &h, sizeof(h)), image + sizeof(h), EVLOG_DATA_BYTES);
+  memcpy(image, &h, sizeof(h));
+}
+
+void test_records_that_do_not_add_up_load_as_an_empty_log() {
+  evlog_ring_add(&r, 1, 0, "one");
+  evlog_ring_add(&r, 2, 0, "two");
+  evlog_ring_t after;
+  evlog_ring_init(&after, data2);
+  evlog_ring_save(&r, img, sizeof(img));
+  reseal(img);
+  TEST_ASSERT_TRUE(evlog_ring_load(&after, img, sizeof(img))); // reseal alone changes nothing
+  evlog_hdr_t *h = (evlog_hdr_t *)img;
+  h->used += 3; // a record cut short at the end
+  reseal(img);
+  TEST_ASSERT_FALSE(evlog_ring_load(&after, img, sizeof(img)));
+  evlog_ring_save(&r, img, sizeof(img));
+  img[sizeof(evlog_hdr_t) + 11] = EVLOG_TEXT_MAX + 1; // a text length no record has
+  reseal(img);
+  TEST_ASSERT_FALSE(evlog_ring_load(&after, img, sizeof(img)));
+  TEST_ASSERT_EQUAL(0, evlog_ring_count(&after));
+}
+
 void test_tail_gives_the_last_lines_that_fit() {
   evlog_ring_add(&r, 1000, 0, "a");
   evlog_ring_add(&r, 2000, 0, "b");
@@ -163,6 +192,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_wraps_and_stays_bounded);
   RUN_TEST(test_survives_a_restart);
   RUN_TEST(test_a_damaged_file_loads_as_an_empty_log);
+  RUN_TEST(test_records_that_do_not_add_up_load_as_an_empty_log);
   RUN_TEST(test_tail_gives_the_last_lines_that_fit);
   RUN_TEST(test_clear_keeps_the_boot);
   RUN_TEST(test_flash_writes_are_rate_limited);
