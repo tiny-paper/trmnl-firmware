@@ -120,6 +120,17 @@ void test_bad_section_name() {
   TEST_ASSERT_EQUAL(APP_ELF_BAD_LAYOUT, check(b));
 }
 
+// A section starting in the 4-byte rounding of .text, where the loader would map it to code (as apps
+// built before apps/build.sh aligned .rodata were)
+void test_section_in_text_rounding() {
+  bytes_t b = hello();
+  int text = find_section(b, ".text"), rodata = find_section(b, ".rodata");
+  uint32_t text_end = rd32(b, shdr(b, text) + 12) + rd32(b, shdr(b, text) + 20);
+  TEST_ASSERT_NOT_EQUAL(0, text_end % 4); // the fixture's .text needs the rounding
+  wr32(b, shdr(b, rodata) + 12, text_end);
+  TEST_ASSERT_EQUAL(APP_ELF_BAD_LAYOUT, check(b));
+}
+
 void test_entry_outside_text() {
   bytes_t b = hello();
   wr32(b, 24, 0x10);
@@ -252,6 +263,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_section_table_out_of_file);
   RUN_TEST(test_section_contents_out_of_file);
   RUN_TEST(test_bad_section_name);
+  RUN_TEST(test_section_in_text_rounding);
   RUN_TEST(test_entry_outside_text);
   RUN_TEST(test_no_text);
   RUN_TEST(test_relocation_symbol_out_of_table);

@@ -46,7 +46,10 @@ typedef struct {
 #else
 #define APP_INFO_LINKAGE
 #endif
+// app_rodata_align makes .rodata 4-byte aligned: elf_loader copies .text rounded up to 4 bytes and
+// would take a .rodata starting in that rounding for code (kept by -Wl,--undefined=app_rodata_align)
 #define APP_INFO(app_name, stack)                                                                                      \
+  APP_INFO_LINKAGE __attribute__((used, aligned(4))) const uint32_t app_rodata_align = 0;                              \
   APP_INFO_LINKAGE __attribute__((used, section(APP_INFO_SECTION))) const app_info_t app_info = {                      \
       APP_INFO_MAGIC, APP_API_VERSION, (stack), app_name}
 

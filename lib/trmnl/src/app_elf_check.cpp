@@ -205,6 +205,14 @@ app_elf_result_t app_elf_check(const uint8_t *buf, size_t len, size_t free_mem, 
   text.size = (text.size + 3) & ~3u;
   if (!in_range(text.file_off, text.size, len)) return APP_ELF_TRUNCATED;
   if (eh.entry < text.vaddr || eh.entry - text.vaddr >= text.size) return APP_ELF_BAD_LAYOUT;
+  // The loader copies .text rounded up to 4 bytes, and maps an address to the first section that
+  // holds it, .text first: a section starting in that rounding would be read through the
+  // instruction bus (apps/build.sh aligns .rodata to prevent it)
+  for (int s = SEC_BSS; s < SEC_COUNT; s++) {
+    if (!secs[s].found || !secs[s].size) continue;
+    uint64_t start = secs[s].vaddr, end = start + secs[s].size;
+    if (start < (uint64_t)text.vaddr + text.size && end > text.vaddr) return APP_ELF_BAD_LAYOUT;
+  }
 
   // The data sections, laid out in one buffer as the loader does: .data, .rodata, .data.rel.ro, .bss
   static const int data_order[] = {SEC_DATA, SEC_RODATA, SEC_DRLRO, SEC_BSS};
