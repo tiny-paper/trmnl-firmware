@@ -42,6 +42,8 @@ KEYS = [
     ("usb_keyboard", "clear_ms", "USB_PORT_CLEAR_MS", "int", (100, 60000)),
     ("usb_keyboard", "probe_ms", "USB_PORT_PROBE_MS", "int", (500, 60000)),
     ("usb_keyboard", "retry_ms", "USB_PORT_RETRY_MS", "int", (1000, 600000)),
+    ("event_log", "bytes", "EVLOG_BYTES", "int", (1024, 65536)),
+    ("event_log", "flush_gap_ms", "EVLOG_FLUSH_GAP_MS", "int", (1000, 600000)),
 ]
 
 

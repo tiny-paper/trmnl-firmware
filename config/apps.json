@@ -33,5 +33,9 @@
     "clear_ms": 1000,
     "probe_ms": 3000,
     "retry_ms": 10000
+  },
+  "event_log": {
+    "bytes": 8192,
+    "flush_gap_ms": 15000
   }
 }
