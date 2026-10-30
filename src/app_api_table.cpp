@@ -6,7 +6,12 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WifiCaptive.h>
+#include <app_clock.h>
 #include <app_path.h>
+#include <apps.h>
+#include <battery.h>
+#include <globals.h>
+#include <power.h>
 #include <epd_driver.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
@@ -81,6 +86,22 @@ static uint32_t app_millis(void) { return millis(); }
 static int64_t wall_time(void) {
   time_t now = time(nullptr);
   return now > 1700000000 ? (int64_t)now : 0; // before late 2023: the clock was never set
+}
+
+static int battery_percent(bool *charging) {
+  ChargingStatus status;
+  {
+    panel_lock lock; // the charger's STAT pin is on the expander the panel uses
+    status = power().chargingStatus();
+  }
+  return app_battery_percent(battery().readSoc(), status, charging);
+}
+
+// The X's time zone: a POSIX TZ string in NVS (APP_TZ_KEY). TRMNL's firmware keeps none today, so this is UTC
+// with zone_known 0 until something stores one
+static int local_time(app_local_time_t *out) {
+  String tz = preferences.getString(APP_TZ_KEY, "");
+  return app_local_time(wall_time(), tz.c_str(), out);
 }
 
 static bool sleep_ms(uint32_t ms) {
@@ -341,6 +362,7 @@ static const app_api_t table = {
     usb_drive_stop,
     webshare_start,  webshare_stop,
     webshare_status,
+    battery_percent, local_time,
 };
 
 const app_api_t *app_api_table(void) {

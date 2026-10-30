@@ -25,6 +25,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | exit | `exit(code)`: ends the app now |
 | USB drive (API 2) | `usb_drive_start(timeout)`, `usb_drive_state`, `usb_drive_stop(result)`: below |
 | Wi-Fi page (API 2) | `webshare_start(mode)`, `webshare_stop`, `webshare_status`: see below |
+| battery, time (API 2) | `battery_percent(&charging)`: the fuel gauge's percent at the last wake (APP_EIO unreadable), charging now; `local_time(&t)`: the clock in the X's time zone (NVS `app_tz`, a POSIX TZ string). TRMNL's firmware keeps no time zone today: until one is stored the fields are UTC with `zone_known` 0; APP_ENOCLOCK before the clock was set |
 
 Errors are negative `APP_E*` values.
 
@@ -227,7 +228,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | header | `TAPP PUT <name>.elf <size> <crc32 hex>`; refused: bad name, 0 bytes, over 2 MB, more than the free space less 16 KB |
 | data | 64-byte blocks, each answered `TAPP ACK <bytes>` (one USB packet; the serial RX buffer drops what does not fit) |
 | end | `TAPP OK <name>.elf`, or `TAPP ERR short` (no byte for 5 s) / `bad crc` / `write failed`: the old app stays |
-| writes | `/apps/.upload.tmp`, renamed over the app only after size and CRC match; a leftover one is removed at the next start |
+| writes | `/apps/.upload.tmp`; after size and CRC match, `app_install_commit` (the one install path, shared with Install via Wi-Fi): the loader's ELF check (`TAPP ERR refused: <reason>`), the old app kept as `.bak` until the new one started, then the rename. A leftover temp file is removed at the next start |
 
 ## Tests
 
@@ -236,6 +237,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
 | USB port rules (roles: one at a time, only the owner switches back; power, 1 s wait, probe, removal, charger in host mode, drive showing, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
+| battery and local time: unreadable gauge, charging flag, clock never set, no or unusable zone (UTC fallback), DST, west of UTC across midnight | `test/test_app_clock` | `pio test -e native -f test_app_clock` |
 | configuration: header up to date, every key required, no configured value left in the sources | `test/config` | `.venv/bin/pytest test/config` |
 | Bluetooth keyboard: pairing and reconnect rules; security before discovery, report and boot protocol, encryption failures (key missing, wrong passkey, passkey timeout), step timeouts, bond deleted on the keyboard side; report maps (report IDs, bitmap, rollover, cut-off and random maps) | `test/test_ble_pair`, `test_ble_hogp`, `test_hid_report_map` (the sim has no Bluetooth) | `pio test -e native -f test_ble_pair -f test_ble_hogp -f test_hid_report_map` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |

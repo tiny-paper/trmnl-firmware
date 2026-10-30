@@ -9,6 +9,7 @@
 #include "apps_config.h" // APPS_DIR, APPS_DATA_DIR (config/apps.json)
 
 #define APPS_MAX      8 // listed in the menu
+#define APP_TZ_KEY    "app_tz" // NVS: the X's time zone for local_time, a POSIX TZ string; unset: UTC
 #define APPS_PATH_MAX 40 // "/apps/<name>.elf", name up to 24 characters
 
 // The apps in /apps, sorted by name: fills names (shown in the menu) and paths; returns how many

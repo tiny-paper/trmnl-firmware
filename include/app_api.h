@@ -230,6 +230,20 @@ typedef struct {
   int32_t locked; // 0 usable; 1 too many wrong codes, locked for a while; 2 too many in all: stopped (start again)
 } app_webshare_status_t;
 
+// ---- local time (API 2) ----
+
+typedef struct {
+  int16_t year; // e.g. 2026
+  uint8_t month; // 1..12
+  uint8_t day; // 1..31
+  uint8_t hour, minute, second;
+  uint8_t weekday; // 0 = Sunday
+  int32_t utc_offset_s; // local minus UTC
+  uint8_t zone_known; // 0: the X has no time zone: the fields are UTC (utc_offset_s 0)
+  uint8_t dst; // daylight saving time is in effect
+  uint16_t reserved;
+} app_local_time_t;
+
 // ---- the table ----
 
 // Calls returning int: 0 or a count on success, < 0 (an APP_E* value) on failure. Paths are relative
@@ -246,6 +260,7 @@ typedef struct {
 #define APP_ENONET -7 // no Wi-Fi
 #define APP_EBUSY -8 // the USB drive is showing the app's files (version 2)
 #define APP_ENOSPC -9 // no room: the drive cannot hold the files, or the X cannot hold the computer's
+#define APP_ENOCLOCK -10 // the clock was never set (no network since the battery was empty)
 
 typedef struct app_api {
   uint32_t version; // APP_API_VERSION of the firmware
@@ -316,6 +331,13 @@ typedef struct app_api {
   int (*webshare_start)(app_webshare_mode_t mode);
   void (*webshare_stop)(void);
   int (*webshare_status)(app_webshare_status_t *st);
+
+  // Battery: the charge in percent (0..100) as the fuel gauge read it at the last wake, or APP_EIO when it could
+  // not be read. *charging (may be NULL): the charger is charging now
+  int (*battery_percent)(bool *charging);
+  // Local time from the clock and the X's time zone. 0 with *out filled (out->zone_known 0: no time zone is set,
+  // the fields are UTC), APP_ENOCLOCK, or APP_EINVAL (out NULL)
+  int (*local_time)(app_local_time_t *out);
 } app_api_t;
 
 #ifdef __cplusplus
@@ -331,15 +353,17 @@ typedef struct app_api {
 // The event is copied into apps built for API 1: its size and offsets stay
 APP_API_ASSERT(sizeof(app_event_t) == 12, "app_event_t is part of the app ABI");
 
-// The table only grows: each version's calls at fixed places (P = a pointer: 104 / 136 bytes on the X).
-// API 1: 24 calls, screen_width .. exit. API 2: keyboards (2), USB drive (3), Wi-Fi page (3)
+// The table only grows: each version's calls at fixed places (P = a pointer: 104 / 144 bytes on the X).
+// API 1: 24 calls, screen_width .. exit. API 2: keyboards (2), USB drive (3), Wi-Fi page (3), battery and time (2)
 #define APP_API_SLOT(n) (8 + (n) * sizeof(void *))
 APP_API_ASSERT(offsetof(app_api_t, screen_width) == APP_API_SLOT(0), "API 1 starts after version and size");
 APP_API_ASSERT(offsetof(app_api_t, exit) == APP_API_SLOT(23), "API 1 has 24 calls");
 APP_API_ASSERT(offsetof(app_api_t, keyboard_enable) == APP_API_SLOT(24), "API 2 starts right after API 1");
 APP_API_ASSERT(offsetof(app_api_t, usb_drive_start) == APP_API_SLOT(26), "API 2: keyboards, then the USB drive");
 APP_API_ASSERT(offsetof(app_api_t, webshare_start) == APP_API_SLOT(29), "API 2: then the Wi-Fi page");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(32), "API 2 has 32 calls: a new one raises APP_API_VERSION");
+APP_API_ASSERT(offsetof(app_api_t, battery_percent) == APP_API_SLOT(32), "API 2: then battery and local time");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(34), "API 2 has 34 calls: a new one raises APP_API_VERSION");
+APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
 APP_API_ASSERT(APP_API_VERSION == 2, "a new version adds its own size check above");
 
 #endif // APP_API_H
