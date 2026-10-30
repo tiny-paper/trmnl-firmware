@@ -1,6 +1,31 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
+
+// ---- who owns the PHY ----
+
+// The S3 has one USB PHY. Its role: the USB serial/JTAG (serial log, flashing; the default and what every
+// switch-back returns to), the OTG controller as USB host (keyboards), or the OTG controller as TinyUSB device
+// (the USB drive). One role at a time: a feature takes the PHY and gives it back; src/usb_port_role.cpp applies it.
+typedef enum { USB_ROLE_SERIAL, USB_ROLE_HOST, USB_ROLE_DRIVE } usb_role_t;
+
+typedef struct {
+  usb_role_t role;
+} usb_roles_t;
+
+void usb_roles_init(usb_roles_t *r);
+
+// True when `want` (HOST or DRIVE) may have the PHY now: it is free (SERIAL) or already `want`'s
+bool usb_role_take(usb_roles_t *r, usb_role_t want);
+
+// True when `had` held the PHY: it is SERIAL again and the caller switches back. False: someone else holds it
+// (or nobody): nothing to switch, so one feature never pulls the PHY from under another
+bool usb_role_give(usb_roles_t *r, usb_role_t had);
+
+const char *usb_role_str(usb_role_t role);
+
+// ---- keyboard host mode ----
 
 // Who has the X's USB-C port (docs/apps.md "Keyboards"): device mode (charging, the serial port, flashing) is the
 // default; host mode (the 5 V boost on, a USB keyboard on an OTG adapter) only while an app wants USB keys AND
@@ -28,6 +53,7 @@ typedef enum {
   USB_WHY_PROBING, // host mode, waiting for a keyboard
   USB_WHY_KEYBOARD, // host mode, a keyboard is there
   USB_WHY_NO_KEYBOARD, // the probe found none, or it was removed: waiting USB_PORT_RETRY_MS
+  USB_WHY_PORT_TAKEN, // another role (the USB drive) has the PHY
 } usb_port_why_t;
 
 typedef struct {
@@ -44,6 +70,7 @@ typedef struct {
   bool wanted; // an app asked for USB keys
   usb_power_t power; // the charger's input power good
   bool keyboard; // a HID keyboard is enumerated (host mode only)
+  bool port_taken; // the PHY is in another role than serial or host (the USB drive shows)
 } usb_port_input_t;
 
 void usb_port_init(usb_port_t *p);

@@ -6,7 +6,7 @@
 #include <drive_session.h>
 #include <stdint.h>
 
-// Starts TinyUSB on the OTG port (usb_port_to_otg first) serving `sectors` 512-byte sectors of img
+// Starts TinyUSB on the OTG port (usb_port_take(USB_ROLE_DRIVE) first) serving `sectors` 512-byte sectors of img
 bool usb_drive_msc_start(uint8_t *img, uint32_t sectors, drive_session_t *session);
 
 // Stops TinyUSB and its task; after it returns no callback touches the image or the session

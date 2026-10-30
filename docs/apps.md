@@ -36,7 +36,19 @@ Errors are negative `APP_E*` values.
 | removed mid-typing | KEY_UP for every key still held, then `APP_EVENT_KEYBOARD` with the bits still connected |
 | Bluetooth LE | not yet: `keyboard_enable(APP_KBD_BLE)` returns `APP_ENOTSUP`. Pairing and reconnect rules are in `lib/trmnl/include/ble_pair.h` (tested). Open: BT is off in `sdkconfigs/sdkconfig.TRMNL_X`; IDF 5.5's NimBLE HID host (`esp_hid/src/nimble_hidh.c`) starts service discovery right after connecting and handles no pairing, passkey or encryption events, so a keyboard that needs encryption fails there: it needs a patched copy (security first, then discovery) |
 
-USB port (`lib/trmnl/include/usb_port.h`, applied by `src/usb_keyboard.cpp`): device mode (charging, serial, flashing) is the default.
+## USB port roles
+
+The S3 has one USB PHY. `src/usb_port_role.cpp` owns it (rules in `lib/trmnl/include/usb_port.h`, tested in `test/test_usb_port`); the keyboard and the drive take it and give it back there, one at a time.
+
+| Role | Who | PHY |
+|---|---|---|
+| serial (default) | always, and after every switch-back | USB serial/JTAG: serial log, flashing |
+| USB host | `usb_keyboard.cpp`, host mode below | OTG controller, host |
+| USB drive | `usb_drive.cpp` while the drive shows | OTG controller, TinyUSB device |
+| the other role asks | refused: `usb_drive_start` returns `APP_EBUSY` while a keyboard is a host; no host probe while the drive shows | unchanged |
+| switch-back | `usb_port_serial_now`: boot constructor and `wake_init.cpp`, `goToSleep`, the restart/panic shutdown handler, each feature's end, the runner after an app ends (long press included) | serial; ROM forced download boot cleared |
+
+Keyboard host mode (`usb_port_step`, applied by `src/usb_keyboard.cpp`): device mode (charging, serial, flashing) is the default.
 
 | Case | Port |
 |---|---|
@@ -44,7 +56,8 @@ USB port (`lib/trmnl/include/usb_port.h`, applied by `src/usb_keyboard.cpp`): de
 | a charger or computer powers the port (charger PG, IOX pin 0), or PG unreadable | device mode, in the same 100 ms poll |
 | on battery for 1 s, app wants USB keys | host mode: 5 V boost on (IOX pin 1), USB host + `espressif/usb_host_hid` (boot keyboard) |
 | host mode, no keyboard within 3 s / keyboard removed | device mode, next probe after 10 s |
-| restart, crash, deep sleep | device mode: the boot (`wake_init.cpp`), a restart handler and `goToSleep` give the PHY back to the USB serial/JTAG and clear the ROM's forced download boot |
+| restart, crash, deep sleep | device mode: the switch-back of "USB port roles" |
+| the USB drive shows | device mode, no probe until it ends |
 | USB stack does not stop within 1 s, or the boost cannot be switched off | restart (which starts in device mode) |
 
 ## Wi-Fi page (last resort for moving files)
@@ -102,7 +115,7 @@ The app's writer files appear on a computer as a USB drive (Freewrite style). On
 | serial back | on every end; a restart's shutdown handler and a constructor at every start (panic, watchdog) move the PHY back to the USB-Serial-JTAG; a long press asks the app to exit and restarts after 2 s if it does not. BOOT-button ROM flashing is never affected |
 
 Code: `lib/trmnl/src/drive_{fat,layout,export,import,session}.cpp` (host tested), `src/usb_drive*.cpp`,
-`src/usb_port.cpp`, `src/drive_littlefs.cpp`; TinyUSB 0.21 (`espressif/tinyusb`, config in `src/tusb/`).
+`src/usb_port_role.cpp`, `src/drive_littlefs.cpp`; TinyUSB 0.21 (`espressif/tinyusb`, config in `src/tusb/`).
 
 ## Build an app
 
@@ -138,7 +151,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 |---|---|---|
 | ELF checks (truncation, arch, tables, relocations, app_info, memory, random damage) | `test/test_app_elf_check` | `pio test -e native -f test_app_elf_check` |
 | paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
-| USB port rules (power, 1 s wait, probe, removal, charger in host mode, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
+| USB port rules (roles: one at a time, only the owner switches back; power, 1 s wait, probe, removal, charger in host mode, drive showing, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |

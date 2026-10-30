@@ -116,6 +116,49 @@ void test_clock_wrap() {
   TEST_ASSERT_EQUAL(USB_PORT_RETRY_MS, host_after(USB_PORT_RETRY_MS * 2, true, USB_POWER_NO, false));
 }
 
+// ---- the PHY's roles: the keyboard's host mode and the USB drive never take it from each other ----
+
+void test_roles_start_serial_and_one_role_at_a_time() {
+  usb_roles_t r;
+  usb_roles_init(&r);
+  TEST_ASSERT_EQUAL(USB_ROLE_SERIAL, r.role);
+  TEST_ASSERT_TRUE(usb_role_take(&r, USB_ROLE_DRIVE));
+  TEST_ASSERT_FALSE(usb_role_take(&r, USB_ROLE_HOST)); // the drive shows: no host mode
+  TEST_ASSERT_EQUAL(USB_ROLE_DRIVE, r.role);
+  TEST_ASSERT_TRUE(usb_role_take(&r, USB_ROLE_DRIVE)); // the owner again: fine
+  TEST_ASSERT_FALSE(usb_role_take(&r, USB_ROLE_SERIAL)); // serial is not taken, it is what giving back gives
+}
+
+void test_host_holds_the_phy_against_the_drive() {
+  usb_roles_t r;
+  usb_roles_init(&r);
+  TEST_ASSERT_TRUE(usb_role_take(&r, USB_ROLE_HOST));
+  TEST_ASSERT_FALSE(usb_role_take(&r, USB_ROLE_DRIVE)); // usb_drive_start gets APP_EBUSY
+  TEST_ASSERT_EQUAL(USB_ROLE_HOST, r.role);
+}
+
+void test_only_the_owner_switches_back() {
+  usb_roles_t r;
+  usb_roles_init(&r);
+  TEST_ASSERT_FALSE(usb_role_give(&r, USB_ROLE_HOST)); // nobody held it
+  usb_role_take(&r, USB_ROLE_DRIVE);
+  TEST_ASSERT_FALSE(usb_role_give(&r, USB_ROLE_HOST)); // keyboard's device-mode step: the drive keeps its PHY
+  TEST_ASSERT_EQUAL(USB_ROLE_DRIVE, r.role);
+  TEST_ASSERT_TRUE(usb_role_give(&r, USB_ROLE_DRIVE));
+  TEST_ASSERT_EQUAL(USB_ROLE_SERIAL, r.role);
+  TEST_ASSERT_TRUE(usb_role_take(&r, USB_ROLE_HOST)); // free again
+}
+
+void test_no_host_mode_while_the_drive_has_the_port() {
+  usb_port_input_t in = {true, USB_POWER_NO, false, true};
+  for (uint32_t t = 0; t < 30000; t += USB_PORT_POLL_MS, now += USB_PORT_POLL_MS) {
+    TEST_ASSERT_EQUAL(USB_PORT_DEVICE, usb_port_step(&p, now, &in));
+  }
+  TEST_ASSERT_EQUAL(USB_WHY_PORT_TAKEN, p.why);
+  in.port_taken = false; // the drive ended: host mode after the usual second on battery (already clear)
+  TEST_ASSERT_EQUAL(0, host_after(5000, true, USB_POWER_NO, false));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_and_stays_in_device_mode_without_an_app);
@@ -130,5 +173,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_app_exit_while_host_gives_device_mode_at_once);
   RUN_TEST(test_restart_starts_in_device_mode);
   RUN_TEST(test_clock_wrap);
+  RUN_TEST(test_roles_start_serial_and_one_role_at_a_time);
+  RUN_TEST(test_host_holds_the_phy_against_the_drive);
+  RUN_TEST(test_only_the_owner_switches_back);
+  RUN_TEST(test_no_host_mode_while_the_drive_has_the_port);
   return UNITY_END();
 }

@@ -15,7 +15,3 @@ uint32_t keyboards_status(void);
 // The app ended: every keyboard off, the port back in device mode. Returns once done (at most about 1 s; a USB
 // stack that does not stop in time restarts the device, which starts in device mode)
 void keyboards_end(void);
-
-// USB: the port's PHY back to the USB serial/JTAG (device mode) and the 5 V boost off. At boot, before deep
-// sleep and on a restart, so no reset or sleep leaves the port a host (usb_keyboard.cpp)
-void usb_port_to_device(void);

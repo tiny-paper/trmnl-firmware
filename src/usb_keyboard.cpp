@@ -7,16 +7,14 @@
 #include <Arduino.h>
 #include <epd_driver.h>
 #include <esp_system.h>
-#include <hal/usb_serial_jtag_ll.h>
 #include <hid_keys.h>
-#include <soc/rtc_cntl_reg.h>
 #include <trmnl_log.h>
 #include <usb/hid_host.h>
 #include <usb/usb_host.h>
-#include <usb_port.h>
 
 #include "app_host.h"
 #include "keyboards.h"
+#include "usb_port_role.h"
 
 #define IOX_CHG_PG       0 // input, low: the charger has input power (VBUS from a charger or computer)
 #define IOX_OTG_EN       1 // output, high: the charger's boost drives VBUS
@@ -63,15 +61,6 @@ static bool boost(bool on, uint32_t wait_ms) {
   bbep.ioWrite(IOX_OTG_EN, on ? HIGH : LOW);
   expander_unlock();
   return true;
-}
-
-// ---- PHY back to the USB serial/JTAG ----
-
-void usb_port_to_device(void) {
-  // The internal PHY's owner is an RTC register (RTC_CNTL_USB_CONF): the OTG controller keeps it across a
-  // software reset and deep sleep unless it is given back here
-  usb_serial_jtag_ll_phy_enable_external(false); // internal PHY -> USB serial/JTAG
-  REG_CLR_BIT(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT); // never into ROM download mode by a reset
 }
 
 // ---- USB host: install, run, stop ----
@@ -128,17 +117,18 @@ static void lib_loop(void *arg) {
 }
 
 static bool host_start(void) {
-  const usb_host_config_t hc = {.skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL1};
+  if (!usb_port_take(USB_ROLE_HOST)) return false; // the PHY: usb_port_role.cpp, not the host library
+  const usb_host_config_t hc = {.skip_phy_setup = true, .intr_flags = ESP_INTR_FLAG_LEVEL1};
   esp_err_t rc = usb_host_install(&hc);
   if (rc != ESP_OK) {
     Log_error("USB keys: host install failed: %s", esp_err_to_name(rc));
-    usb_port_to_device();
+    usb_port_give(USB_ROLE_HOST);
     return false;
   }
   lib_stop = false;
   if (xTaskCreatePinnedToCore(lib_loop, "usb_lib", 4096, nullptr, 10, (TaskHandle_t *)&lib_task, 0) != pdPASS) {
     usb_host_uninstall();
-    usb_port_to_device();
+    usb_port_give(USB_ROLE_HOST);
     return false;
   }
   hid_host_driver_config_t dc = {};
@@ -168,7 +158,7 @@ static bool host_stop(uint32_t deadline) {
     if ((int32_t)(millis() - deadline) >= 0) return false;
     delay(10);
   }
-  usb_port_to_device();
+  usb_port_give(USB_ROLE_HOST);
   return true;
 }
 
@@ -238,7 +228,7 @@ static void port_loop(void *arg) {
       was_open = keyboard_open;
       if (was_open) post_keyboard_event();
     }
-    usb_port_input_t in = {wanted && !stop_task, read_power(), keyboard_open};
+    usb_port_input_t in = {wanted && !stop_task, read_power(), keyboard_open, usb_port_role() == USB_ROLE_DRIVE};
     usb_port_mode_t mode = usb_port_step(&port, millis(), &in);
     if (port.why != why) {
       why = port.why;
@@ -274,14 +264,8 @@ static void port_loop(void *arg) {
   vTaskDelete(nullptr);
 }
 
-static void restart_handler(void) {
-  // esp_restart: no I2C here (the bus may be held); the boot switches the boost off (wake_init)
-  usb_port_to_device();
-}
-
 int usb_keyboard_enable(bool on) {
-  static bool handler;
-  if (!handler) handler = esp_register_shutdown_handler(restart_handler) == ESP_OK;
+  // A restart: usb_port_role.cpp's handler gives the PHY back (no I2C there: the boot switches the boost off)
   wanted = on;
   if (!on || port_task) return 0;
   if (!conn_q) conn_q = xQueueCreate(4, sizeof(hid_host_device_handle_t));

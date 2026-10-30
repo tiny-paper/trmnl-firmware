@@ -22,7 +22,7 @@
 #ifdef BOARD_TRMNL_X
 #include <Wire.h>
 #include <apps.h>
-#include "keyboards.h"
+#include "usb_port_role.h"
 
 #include "touchbar_actions.h"
 #else
@@ -141,7 +141,7 @@ void startBoardHardware(const WakeContext &wake, uint32_t init_time) {
   iqs323_task_i2c_lock();
   display_init();
   otg_turn_off(); // Since OTG function was commented out, need to ensure that OTG is turned off
-  usb_port_to_device(); // a restart or crash in an app's USB host mode left the port to the OTG controller
+  usb_port_serial_now(); // a restart or crash in an app's USB host mode or USB drive left the PHY to the OTG controller
   iqs323_task_i2c_unlock();
   filesystem_init();
 

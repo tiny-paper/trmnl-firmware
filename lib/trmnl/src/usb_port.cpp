@@ -2,6 +2,30 @@
 
 #include <string.h>
 
+void usb_roles_init(usb_roles_t *r) { r->role = USB_ROLE_SERIAL; }
+
+bool usb_role_take(usb_roles_t *r, usb_role_t want) {
+  if (want == USB_ROLE_SERIAL) return false;
+  if (r->role != USB_ROLE_SERIAL && r->role != want) return false;
+  r->role = want;
+  return true;
+}
+
+bool usb_role_give(usb_roles_t *r, usb_role_t had) {
+  if (had == USB_ROLE_SERIAL || r->role != had) return false;
+  r->role = USB_ROLE_SERIAL;
+  return true;
+}
+
+const char *usb_role_str(usb_role_t role) {
+  switch (role) {
+  case USB_ROLE_SERIAL: return "serial";
+  case USB_ROLE_HOST: return "USB host";
+  case USB_ROLE_DRIVE: return "USB drive";
+  }
+  return "?";
+}
+
 void usb_port_init(usb_port_t *p) {
   memset(p, 0, sizeof(*p));
   p->mode = USB_PORT_DEVICE;
@@ -28,6 +52,7 @@ usb_port_mode_t usb_port_step(usb_port_t *p, uint32_t now, const usb_port_input_
     p->retry_wait = false;
     return device(p, USB_WHY_NOT_WANTED);
   }
+  if (in->port_taken) return device(p, USB_WHY_PORT_TAKEN); // never pull the PHY from the drive
   if (p->mode == USB_PORT_HOST) {
     if (in->keyboard) {
       p->why = USB_WHY_KEYBOARD;
@@ -59,6 +84,7 @@ const char *usb_port_why_str(usb_port_why_t why) {
   case USB_WHY_PROBING: return "host mode: looking for a keyboard";
   case USB_WHY_KEYBOARD: return "host mode: keyboard";
   case USB_WHY_NO_KEYBOARD: return "no keyboard: device mode, trying again later";
+  case USB_WHY_PORT_TAKEN: return "the USB drive has the port";
   }
   return "?";
 }

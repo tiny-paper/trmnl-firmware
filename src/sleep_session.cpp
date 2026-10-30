@@ -1,5 +1,5 @@
 #ifdef BOARD_TRMNL_X
-#include "keyboards.h"
+#include "usb_port_role.h"
 #endif
 #include <Arduino.h>
 #include <ArduinoLog.h>
@@ -50,7 +50,7 @@ void goToSleep(void) {
 #endif
 
 #if BOARD_TRMNL_X
-  usb_port_to_device(); // never sleep with the port left to an app's USB host mode
+  usb_port_serial_now(); // never sleep with the port left to an app's USB host mode
   Log_info("Preparing IQS323 for sleep via task...");
 
   // Use task manager for sleep preparation (sets event mode, checks I2C health)

@@ -19,7 +19,7 @@
 #include "app_host.h"
 #include "drive_littlefs.h"
 #include "usb_drive_msc.h"
-#include "usb_port.h"
+#include "usb_port_role.h"
 
 #define DRIVE_TIMEOUT_MS 60000
 #define DRIVE_IMG_MAX (6u * 1024 * 1024)
@@ -112,10 +112,10 @@ int usb_drive_start(uint32_t connect_timeout_ms) {
   }
   if (rc == 0) {
     drive_session_reset(&d.session);
-    if (!usb_port_to_otg()) {
-      rc = APP_EIO;
+    if (!usb_port_take(USB_ROLE_DRIVE)) {
+      rc = usb_port_role() == USB_ROLE_SERIAL ? APP_EIO : APP_EBUSY; // EBUSY: a USB keyboard has the port
     } else if (!usb_drive_msc_start(d.img, (uint32_t)(d.img_size / DRIVE_FAT_SECTOR), &d.session)) {
-      usb_port_to_serial();
+      usb_port_give(USB_ROLE_DRIVE);
       rc = APP_EIO;
     }
   }
@@ -140,7 +140,7 @@ static void end(drive_end_t why) {
   if (d.state != SHOWN) return;
   d.state = ENDING;
   usb_drive_msc_stop();
-  usb_port_to_serial();
+  usb_port_give(USB_ROLE_DRIVE);
   uint32_t now = millis();
   d.result.ended_by = (uint8_t)why;
   bool take = drive_session_take(&d.session, why, now);

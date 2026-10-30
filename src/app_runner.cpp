@@ -25,6 +25,7 @@
 #include "app_host.h"
 #include "keyboards.h"
 #include "usb_drive.h"
+#include "usb_port_role.h"
 #include "webshare.h"
 
 #define APP_POLL_MS       20
@@ -287,6 +288,7 @@ void apps_run(const char *path) {
   int code = app_host.code;
   Log_info("Apps: %s ended with %d", app_host.name, code);
   keyboards_end(); // the USB port back in device mode before anything else
+  usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
   iqs323_task_set_streaming_mode(false);
   webshare_stop(); // the page never outlives the app
   app_host_close_files();
