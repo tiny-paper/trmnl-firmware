@@ -3,6 +3,7 @@
 #ifdef BOARD_TRMNL_X
 
 #include <LittleFS.h>
+#include "app_heap.h"
 #include <app_elf_check.h>
 #include <app_install.h>
 #include <app_keys.h>
@@ -208,6 +209,7 @@ static const char *app_load(const char *path, esp_elf_t *elf, app_info_t *info) 
     snprintf(error, sizeof(error), "%s", app_elf_result_str(check));
     return error;
   }
+  app_heap_route();
   esp_elf_init(elf);
   int rc = esp_elf_relocate(elf, buf);
   free(buf);
