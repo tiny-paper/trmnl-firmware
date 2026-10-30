@@ -26,6 +26,27 @@ void test_bad_headers() {
   TEST_ASSERT_EQUAL(APP_UPLOAD_BAD_HEADER, app_upload_parse(nullptr, FREE, &h));
 }
 
+void test_header_found_after_noise() {
+  TEST_ASSERT_EQUAL_STRING("TAPP PUT a.elf 1 0", app_upload_find_header("TAPP PUT a.elf 1 0"));
+  TEST_ASSERT_EQUAL_STRING("TAPP PUT a.elf 1 0", app_upload_find_header("\x1b[0m~~ rst:0x1 TAPP PUT a.elf 1 0"));
+  TEST_ASSERT_NULL(app_upload_find_header("TAP PUT a.elf 1 0"));
+  TEST_ASSERT_NULL(app_upload_find_header(""));
+  TEST_ASSERT_NULL(app_upload_find_header(nullptr));
+}
+
+void test_got_text_names_the_bytes() {
+  char out[APP_UPLOAD_LINE_MAX];
+  app_upload_got_text("AB\x01", 32, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("got 41 42 01", out);
+  app_upload_got_text("ABCDEF", 2, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("got 41 42", out);
+  char tiny[8];
+  app_upload_got_text("ABCDEF", 32, tiny, sizeof(tiny)); // a small buffer never overruns
+  TEST_ASSERT_EQUAL_UINT(7, strlen(tiny));
+  app_upload_got_text("", 32, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("got", out);
+}
+
 void test_bad_names() {
   app_upload_header_t h;
   TEST_ASSERT_EQUAL(APP_UPLOAD_BAD_NAME, app_upload_parse("TAPP PUT ../x.elf 1 0", FREE, &h));
@@ -62,6 +83,8 @@ int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_header_ok);
   RUN_TEST(test_bad_headers);
+  RUN_TEST(test_header_found_after_noise);
+  RUN_TEST(test_got_text_names_the_bytes);
   RUN_TEST(test_bad_names);
   RUN_TEST(test_sizes_and_space);
   RUN_TEST(test_check);

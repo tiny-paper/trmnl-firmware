@@ -43,6 +43,13 @@ typedef struct {
 // Parses a header line (without its newline) and checks it against the free bytes of the file system
 app_upload_result_t app_upload_parse(const char *line, uint64_t fs_free, app_upload_header_t *h);
 
+// Noise-proof header lookup: bytes before "TAPP " on a line (boot or log noise, a partial line, the host's open) are
+// not part of the header. Returns the "TAPP ..." part of `line`, or nullptr when there is none.
+const char *app_upload_find_header(const char *line);
+
+// "bad header: got 54 41 ..." (the first `max_bytes` bytes of `line` in hex) into `out`: what the device saw
+void app_upload_got_text(const char *line, size_t max_bytes, char *out, size_t out_len);
+
 // The CRC is trmnl_crc32 (trmnl_crc32.h)
 
 // The result once the data ended: `got` bytes with CRC `crc`

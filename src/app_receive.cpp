@@ -13,6 +13,7 @@
 #include <trmnl_log.h>
 
 #include <algorithm>
+#include <string.h>
 
 #include "webshare.h" // webshare_fs_root
 
@@ -20,7 +21,7 @@
 
 static void reply(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void reply(const char *fmt, ...) {
-  char line[APP_UPLOAD_LINE_MAX];
+  char line[160]; // "ERR bad header: got" and 32 bytes in hex fit
   va_list ap;
   va_start(ap, fmt);
   vsnprintf(line, sizeof(line), fmt, ap);
@@ -29,10 +30,11 @@ static void reply(const char *fmt, ...) {
   Serial.flush();
 }
 
+#define KEEP_TAIL 8 // bytes of an over-long line kept (the start of "TAPP " may be among them)
+
 // A line from the port into `line`; false on a cancel or after `idle_ms` without a byte
 static bool read_line(char *line, size_t cap, uint32_t idle_ms, bool (*cancel)(void)) {
   size_t len = 0;
-  bool too_long = false;
   uint32_t last = millis();
   while (true) {
     int b = Serial.read();
@@ -45,17 +47,14 @@ static bool read_line(char *line, size_t cap, uint32_t idle_ms, bool (*cancel)(v
     last = millis();
     if (b == '\r') continue;
     if (b == '\n') {
-      if (too_long) {
-        len = 0;
-        too_long = false;
-        reply("ERR %s", app_upload_result_str(APP_UPLOAD_BAD_HEADER));
-        continue;
-      }
       line[len] = '\0';
       return true;
     }
-    if (len + 1 < cap) line[len++] = (char)b;
-    else too_long = true;
+    if (len + 1 >= cap) { // a line too long to be a header (noise): keep the last bytes, a header may follow it
+      memmove(line, line + len - KEEP_TAIL, KEEP_TAIL);
+      len = KEEP_TAIL;
+    }
+    line[len++] = (char)b;
   }
 }
 
@@ -120,10 +119,19 @@ int apps_receive(bool (*cancel)(void)) {
   char line[APP_UPLOAD_LINE_MAX];
   while (read_line(line, sizeof(line), RECEIVE_IDLE_MS, cancel)) {
     if (!line[0]) continue;
+    const char *header = app_upload_find_header(line);
+    char got[APP_UPLOAD_LINE_MAX];
+    app_upload_got_text(line, 32, got, sizeof(got));
+    if (!header) { // noise, not a header: no reply (the host would take it for one), the log says what it was
+      Log_info("Apps: ignored a line without \"TAPP \": %s", got);
+      continue;
+    }
+    if (header != line) Log_info("Apps: %u bytes before \"TAPP \" dropped: %s", (unsigned)(header - line), got);
     app_upload_header_t h;
     uint64_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
-    app_upload_result_t r = app_upload_parse(line, used < total ? total - used : 0, &h);
-    char reason[64] = "";
+    app_upload_result_t r = app_upload_parse(header, used < total ? total - used : 0, &h);
+    char reason[112] = "";
+    if (r == APP_UPLOAD_BAD_HEADER) app_upload_got_text(header, 32, reason, sizeof(reason)); // what it got
     if (r == APP_UPLOAD_OK) r = receive_data(h, reason, sizeof(reason));
     if (r != APP_UPLOAD_OK) {
       Log_info("Apps: upload refused: %s%s%s", app_upload_result_str(r), reason[0] ? ": " : "", reason);

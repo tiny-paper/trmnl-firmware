@@ -40,6 +40,21 @@ app_upload_result_t app_upload_parse(const char *line, uint64_t fs_free, app_upl
   return APP_UPLOAD_OK;
 }
 
+const char *app_upload_find_header(const char *line) {
+  return line ? strstr(line, "TAPP ") : nullptr;
+}
+
+void app_upload_got_text(const char *line, size_t max_bytes, char *out, size_t out_len) {
+  if (!out || !out_len) return;
+  size_t o = 0;
+  out[0] = '\0';
+  if (!line) return;
+  o = (size_t)snprintf(out, out_len, "got");
+  for (size_t i = 0; line[i] && i < max_bytes && o < out_len; i++)
+    o += (size_t)snprintf(out + o, out_len - o, " %02x", (unsigned char)line[i]);
+  if (o >= out_len) out[out_len - 1] = '\0';
+}
+
 app_upload_result_t app_upload_check(const app_upload_header_t *h, uint32_t got, uint32_t crc) {
   if (got != h->size) return APP_UPLOAD_SHORT;
   if (crc != h->crc) return APP_UPLOAD_BAD_CRC;

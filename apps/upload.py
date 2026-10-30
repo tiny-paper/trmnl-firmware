@@ -12,6 +12,8 @@ import zlib
 
 BLOCK = 64  # APP_UPLOAD_BLOCK
 REPLY_S = 10
+HEADER_TRY_S = 4  # wait for READY this long before sending the header again
+SETTLE_S = 0.5  # after opening the port
 
 
 class UploadError(Exception):
@@ -20,8 +22,13 @@ class UploadError(Exception):
 
 def upload(name, data, write, read_reply):
     """Sends one file. write(bytes); read_reply(timeout_s) returns the next "TAPP ..." line or None."""
-    write(b"TAPP PUT %s %d %08x\n" % (name.encode(), len(data), zlib.crc32(data) & 0xFFFFFFFF))
-    expect(read_reply(REPLY_S), "READY")
+    header = b"TAPP PUT %s %d %08x\n" % (name.encode(), len(data), zlib.crc32(data) & 0xFFFFFFFF)
+    for attempt in (1, 2):  # the X skips noise before "TAPP ", but the first header can still be lost: once more
+        write(header)
+        reply = read_reply(REPLY_S if attempt == 2 else HEADER_TRY_S)
+        if reply == "TAPP READY" or attempt == 2:
+            break
+    expect(reply, "READY")
     sent = 0
     while sent < len(data):
         chunk = data[sent:sent + BLOCK]
@@ -42,7 +49,15 @@ def expect(line, want):
 def serial_port(path):
     import serial  # pyserial
 
-    port = serial.Serial(path, 115200, timeout=0.2)
+    # DTR and RTS low BEFORE the open: the X's USB-Serial/JTAG resets on the usual DTR/RTS toggle at open
+    port = serial.Serial()
+    port.port = path
+    port.baudrate = 115200
+    port.timeout = 0.2
+    port.dtr = False
+    port.rts = False
+    port.open()
+    time.sleep(SETTLE_S)
 
     def read_reply(timeout_s):
         end = time.time() + timeout_s

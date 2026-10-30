@@ -85,6 +85,28 @@ def files_on_flash(flash_path):
     return out
 
 
+def test_noise_and_a_partial_line_before_the_header_are_skipped(device, elfs):
+    """Device 2026-10-30: `TAPP ERR bad header` for a good header; bytes were on the port before it"""
+    sim = device({})
+    port = receive_mode(sim, [])
+    port.write(b"\x00\xff~~ boot noise\r\nrst:0x1 (POWERON)\n")  # whole noise lines: no reply at all
+    port.write(b"x" * 300)  # an over-long partial line (more than the line buffer), no newline
+    port.write(b"TAPP PU")  # a partial header, abandoned by a newline: the host starts over
+    port.write(b"\r\n")
+    assert port.read_reply(3) == "TAPP ERR bad header: got 54 41 50 50 20 50 55"
+    port.write(b"zz" + b"y" * 200)  # noise glued to the front of the real header, CR LF line end
+    data = elfs["hello"]
+    port.write(b"TAPP PUT hello.elf %d %08x\r\n" % (len(data), zlib.crc32(data)))
+    assert port.read_reply(10) == "TAPP READY"
+    for i in range(0, len(data), upload.BLOCK):
+        port.write(data[i:i + upload.BLOCK])
+        if i + upload.BLOCK < len(data):
+            assert port.read_reply(10) == "TAPP ACK %d" % (i + upload.BLOCK)
+    assert port.read_reply(10) == "TAPP OK hello.elf"
+    must_log(sim, r'Apps: ignored a line without "TAPP "', 0)
+    stop_receiving(sim)
+
+
 def test_an_app_sent_over_usb_runs_and_the_rest_of_the_file_system_stays(device, elfs):
     sim = device({"/keep/screen.bin": KEEP})
     port = receive_mode(sim, [])
@@ -135,7 +157,7 @@ def test_a_bad_or_cut_off_upload_keeps_the_old_app(device, elfs):
                         (b"TAPP PUT hello.elf 2097153 0", "too big"), (b"TAPP PUT hello.elf", "bad name"),
                         (b"garbage", "bad header")]:
         port.write(header + b"\n")
-        assert port.read_reply(10) == "TAPP ERR " + why, header
+        assert (port.read_reply(10) or "").startswith("TAPP ERR " + why), header
     # still answers a good one afterwards
     upload.upload("second.elf", elfs["hello"], port.write, port.read_reply)
     stop_receiving(sim)
