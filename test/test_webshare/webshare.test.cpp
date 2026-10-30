@@ -1,4 +1,5 @@
 #include <string.h>
+#include <trmnl_crc32.h>
 #include <unity.h>
 
 #include <string>
@@ -462,19 +463,13 @@ void test_zip_is_valid_for_any_chunk_size() {
   // first central entry: crc of 1000 'a' and the offset 0
   TEST_ASSERT_EQUAL_HEX32(0x02014b50u, rd32(ref, cd_off));
   std::string a(1000, 'a');
-  TEST_ASSERT_EQUAL_HEX32(ws_crc32(0, a.data(), a.size()), rd32(ref, cd_off + 16));
+  TEST_ASSERT_EQUAL_HEX32(trmnl_crc32(0, a.data(), a.size()), rd32(ref, cd_off + 16));
   TEST_ASSERT_EQUAL_UINT32(1000, rd32(ref, cd_off + 20));
   TEST_ASSERT_EQUAL_UINT32(0, rd32(ref, cd_off + 42));
   // the local header at the stored offset of entry 3 is a local header
   size_t e3 = cd_off + (46 + 18) + (46 + 20);
   TEST_ASSERT_EQUAL_HEX32(0x02014b50u, rd32(ref, e3));
   TEST_ASSERT_EQUAL_HEX32(0x04034b50u, rd32(ref, rd32(ref, e3 + 42)));
-}
-
-void test_crc32_known_value() {
-  TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, ws_crc32(0, "123456789", 9));
-  uint32_t c = ws_crc32(0, "1234", 4);
-  TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, ws_crc32(c, "56789", 5));
 }
 
 void test_zip_unreadable_file_is_an_error_not_a_short_zip() {
@@ -534,7 +529,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_rename_and_delete_follow_the_rules);
   RUN_TEST(test_list_shows_only_layout_files);
   RUN_TEST(test_zip_is_valid_for_any_chunk_size);
-  RUN_TEST(test_crc32_known_value);
   RUN_TEST(test_zip_unreadable_file_is_an_error_not_a_short_zip);
   RUN_TEST(test_zip_refuses_too_many_or_long);
   return UNITY_END();

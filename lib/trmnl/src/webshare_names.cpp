@@ -1,5 +1,7 @@
 #include "webshare_names.h"
 
+#include <drive_layout.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -14,17 +16,11 @@ static bool ends_with(const char *s, size_t len, const char *suffix) {
   return true;
 }
 
+// The name rule is the USB drive's (drive_name_ok: one rule for every way files come in), plus the page's length
 bool ws_name_ok(const char *name) {
   if (!name) return false;
   size_t len = strlen(name);
-  if (len == 0 || len > WS_NAME_MAX) return false;
-  if (name[0] == '.' || name[len - 1] == '.' || name[len - 1] == ' ') return false;
-  for (size_t i = 0; i < len; i++) {
-    unsigned char c = (unsigned char)name[i];
-    if (c < 0x20 || c == 0x7f) return false;
-    if (strchr("/\\:*?\"<>|", c)) return false;
-  }
-  return true;
+  return len <= WS_NAME_MAX && drive_name_ok(name, len);
 }
 
 // Splits "a/b/c" into parts; false if there are more than `max` or any is not a good name

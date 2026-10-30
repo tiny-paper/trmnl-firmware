@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <app_upload.h>
+#include <trmnl_crc32.h>
 #include <apps.h>
 #include <trmnl_log.h>
 
@@ -74,7 +75,7 @@ static app_upload_result_t receive_data(const app_upload_header_t &h) {
     if (!n) continue;
     last = millis();
     if (!write_failed && f.write(buf, n) != n) write_failed = true; // keeps reading: the host gets its reply
-    crc = app_upload_crc32(crc, buf, n);
+    crc = trmnl_crc32(crc, buf, n);
     got += n;
     in_block += n;
     if (in_block == APP_UPLOAD_BLOCK && got < h.size) {

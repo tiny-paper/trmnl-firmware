@@ -1,18 +1,9 @@
 #include "webshare_zip.h"
 
 #include <string.h>
+#include <trmnl_crc32.h>
 
 enum { ST_LOCAL, ST_DATA, ST_DESC, ST_CENTRAL, ST_EOCD, ST_DONE };
-
-uint32_t ws_crc32(uint32_t crc, const void *data, size_t len) {
-  const uint8_t *p = (const uint8_t *)data;
-  crc = ~crc;
-  for (size_t i = 0; i < len; i++) {
-    crc ^= p[i];
-    for (int k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-  }
-  return ~crc;
-}
 
 static void put16(uint8_t *p, uint32_t v) {
   p[0] = (uint8_t)v;
@@ -166,7 +157,7 @@ int ws_zip_read(ws_zip_t *z, void *buf, size_t cap) {
         stage_desc(z);
         break;
       }
-      z->crc = ws_crc32(z->crc, out + n, (size_t)got);
+      z->crc = trmnl_crc32(z->crc, out + n, (size_t)got);
       z->size += (uint32_t)got;
       z->out_pos += (uint32_t)got;
       n += (size_t)got;

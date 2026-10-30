@@ -40,16 +40,6 @@ app_upload_result_t app_upload_parse(const char *line, uint64_t fs_free, app_upl
   return APP_UPLOAD_OK;
 }
 
-uint32_t app_upload_crc32(uint32_t crc, const void *data, size_t len) {
-  const uint8_t *b = (const uint8_t *)data;
-  crc = ~crc;
-  while (len--) {
-    crc ^= *b++;
-    for (int k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-  }
-  return ~crc;
-}
-
 app_upload_result_t app_upload_check(const app_upload_header_t *h, uint32_t got, uint32_t crc) {
   if (got != h->size) return APP_UPLOAD_SHORT;
   if (crc != h->crc) return APP_UPLOAD_BAD_CRC;

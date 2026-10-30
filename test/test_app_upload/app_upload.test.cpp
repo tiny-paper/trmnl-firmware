@@ -49,13 +49,6 @@ void test_sizes_and_space() {
   TEST_ASSERT_EQUAL(APP_UPLOAD_NO_SPACE, app_upload_parse("TAPP PUT a.elf 1 0", APP_UPLOAD_MARGIN - 1, &h));
 }
 
-void test_crc32_is_zlibs() {
-  TEST_ASSERT_EQUAL_HEX32(0xcbf43926, app_upload_crc32(0, "123456789", 9)); // the standard check value
-  uint32_t c = app_upload_crc32(0, "12345", 5);
-  TEST_ASSERT_EQUAL_HEX32(0xcbf43926, app_upload_crc32(c, "6789", 4));
-  TEST_ASSERT_EQUAL_HEX32(0, app_upload_crc32(0, "", 0));
-}
-
 void test_check() {
   app_upload_header_t h;
   TEST_ASSERT_EQUAL(APP_UPLOAD_OK, app_upload_parse("TAPP PUT a.elf 9 cbf43926", FREE, &h));
@@ -71,7 +64,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_bad_headers);
   RUN_TEST(test_bad_names);
   RUN_TEST(test_sizes_and_space);
-  RUN_TEST(test_crc32_is_zlibs);
   RUN_TEST(test_check);
   return UNITY_END();
 }

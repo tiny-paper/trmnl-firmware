@@ -3,7 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "webshare_zip.h" // ws_crc32
+#include "webshare_zip.h"
+#include <trmnl_crc32.h>
 
 const char *ws_result_str(ws_result_t r) {
   switch (r) {
@@ -132,7 +133,7 @@ ws_result_t ws_upload_chunk(ws_upload_t *u, const void *data, size_t len) {
     return WS_E_NO_SPACE;
   }
   u->got += (uint32_t)len;
-  u->crc = ws_crc32(u->crc, data, len);
+  u->crc = trmnl_crc32(u->crc, data, len);
   return WS_OK;
 }
 
@@ -143,7 +144,7 @@ static bool file_crc(const ws_fs_t *fs, const char *path, uint32_t *crc) {
   uint8_t buf[256];
   uint32_t c = 0;
   int n;
-  while ((n = fs->read(fs->ctx, f, buf, sizeof(buf))) > 0) c = ws_crc32(c, buf, (size_t)n);
+  while ((n = fs->read(fs->ctx, f, buf, sizeof(buf))) > 0) c = trmnl_crc32(c, buf, (size_t)n);
   fs->close(fs->ctx, f);
   *crc = c;
   return n == 0;

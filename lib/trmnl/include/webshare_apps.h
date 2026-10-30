@@ -1,5 +1,6 @@
 #pragma once
 
+#include <app_upload.h>
 #include <persistence_interface.h>
 
 #include "webshare_store.h"
@@ -7,7 +8,7 @@
 // The Wi-Fi page in apps mode ("Install via Wi-Fi"): upload, list and delete the ELF files in apps/ of the file
 // system root. Same upload machinery as the writer page (webshare_store), plus the ELF checker before a file is kept.
 
-#define WS_APP_MAX (2u * 1024u * 1024u)
+#define WS_APP_MAX APP_UPLOAD_MAX // one app size limit, over USB serial or Wi-Fi
 #define WS_APPS_TMP_DIR "apps"
 
 // Starts an upload of `file` ("<name>.elf") of up to `size` bytes (an upper bound is fine when the real size

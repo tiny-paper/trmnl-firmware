@@ -42,8 +42,7 @@ typedef struct {
 // Parses a header line (without its newline) and checks it against the free bytes of the file system
 app_upload_result_t app_upload_parse(const char *line, uint64_t fs_free, app_upload_header_t *h);
 
-// zlib's CRC-32: crc = app_upload_crc32(0, data, len), continued with the previous value
-uint32_t app_upload_crc32(uint32_t crc, const void *data, size_t len);
+// The CRC is trmnl_crc32 (trmnl_crc32.h)
 
 // The result once the data ended: `got` bytes with CRC `crc`
 app_upload_result_t app_upload_check(const app_upload_header_t *h, uint32_t got, uint32_t crc);

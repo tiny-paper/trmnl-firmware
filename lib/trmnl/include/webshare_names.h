@@ -14,8 +14,9 @@
 
 typedef enum { WS_OTHER, WS_DOC, WS_FONT } ws_kind_t;
 
-// Classifies a relative path. Refused (WS_OTHER): empty parts, "." / "..", a leading dot, a trailing dot or space,
-// control characters, '\\', ':', '*', '?', '"', '<', '>', '|', names over WS_NAME_MAX, paths over WS_PATH_MAX.
+// Classifies a relative path. Refused (WS_OTHER): any name drive_name_ok refuses (empty, "." / "..", a leading dot,
+// a trailing dot or space, invalid UTF-8, control characters, '\\', ':', '*', '?', '"', '<', '>', '|'), names over
+// WS_NAME_MAX, paths over WS_PATH_MAX.
 ws_kind_t ws_classify(const char *path);
 
 // One name (a folder, or a title with its extension) on its own, same rules as above
