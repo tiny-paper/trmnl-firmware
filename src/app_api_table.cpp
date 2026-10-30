@@ -16,6 +16,7 @@
 #include <wifi_network.h>
 
 #include "app_host.h"
+#include "ble_keyboard.h"
 #include "keyboards.h"
 #include "usb_drive.h"
 #include "webshare.h"
@@ -59,6 +60,7 @@ static int screen_refresh(const app_rect_t *rect, app_refresh_t how) {
   }
   int rc;
   panel_lock lock;
+  if (app_host.screen_held) return 0; // the pairing screen is up; it puts the app's pixels back when done
   if (how == APP_REFRESH_PARTIAL && screen_mode == APP_SCREEN_1BIT) {
     rc = bbep.partialUpdate(true, r.y, r.y + r.h - 1);
   } else {
@@ -223,7 +225,11 @@ static bool net_up(void) {
   // 5 GHz networks go through the modem, whose AT interface has no HTTP client for apps yet
   if (WifiCaptivePortal.getLastCredentials().is5GHz) return false;
   WiFi.mode(WIFI_STA);
-  return connectWithSavedCredentials();
+  bool up = connectWithSavedCredentials();
+  // Sharing the radio with a Bluetooth keyboard: modem sleep lets the coexistence scheduler give BLE its slots
+  // (TRMNL's connect turns sleep off)
+  if (up && ble_keyboard_radio_on()) WiFi.setSleep(WIFI_PS_MIN_MODEM);
+  return up;
 }
 
 bool app_host_net_up(void) { return net_up(); }

@@ -16,7 +16,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 |---|---|
 | screen | `screen_width`, `screen_height`, `screen_set_mode` (1-bit or 4-bit gray, returns the framebuffer), `screen_stride`, `screen_refresh` (rectangle or all, partial or full) |
 | input | `input_poll(ev, timeout)`: key down/up (code, modifiers, UTF-8) from a terminal on the USB serial port, touch bar taps (zone; swipes not yet), `APP_EVENT_EXIT` |
-| keyboards (API 2) | `keyboard_enable(APP_KBD_USB)`, `keyboard_status()`: keys of a USB keyboard with their HID usage, `APP_EVENT_KEYBOARD` when one comes or goes (below) |
+| keyboards (API 2) | `keyboard_enable(APP_KBD_USB \| APP_KBD_BLE)`, `keyboard_status()`: keys of a USB or Bluetooth LE keyboard with their HID usage, `APP_EVENT_KEYBOARD` when one comes or goes (below) |
 | files | `file_open/read/write/seek/close/list/rename/remove/mkdir`, paths relative to `/appdata/<app>/` |
 | time | `millis`, `wall_time` (Unix s, 0 if unset), `sleep_ms` (yields, returns early on an event) |
 | log | `log(fmt, ...)` |
@@ -34,7 +34,37 @@ Errors are negative `APP_E*` values.
 |---|---|
 | keys | KEY_DOWN / KEY_UP with `hid_usage` (HID keyboard page) and `modifiers` (`APP_MOD_ALTGR` = right Alt). No layout in the firmware: Enter, Escape, Backspace, Tab, Delete, arrows, Home, End, Page Up/Down, F1..F12 get their `app_key_t`, every other key is `APP_KEY_HID` with an empty `utf8`; the app maps its layout (`lib/trmnl/src/hid_keys.cpp`) |
 | removed mid-typing | KEY_UP for every key still held, then `APP_EVENT_KEYBOARD` with the bits still connected |
-| Bluetooth LE | not yet: `keyboard_enable(APP_KBD_BLE)` returns `APP_ENOTSUP`. Pairing and reconnect rules are in `lib/trmnl/include/ble_pair.h` (tested). Open: BT is off in `sdkconfigs/sdkconfig.TRMNL_X`; IDF 5.5's NimBLE HID host (`esp_hid/src/nimble_hidh.c`) starts service discovery right after connecting and handles no pairing, passkey or encryption events, so a keyboard that needs encryption fails there: it needs a patched copy (security first, then discovery) |
+| Bluetooth LE | `src/ble_keyboard.cpp` on NimBLE (central only); rules in `lib/trmnl`: `ble_pair.h` (pairing, bond, reconnect), `ble_hogp.h` (security, then HID over GATT), `hid_report_map.h` (report protocol to boot format). Table below |
+
+### Bluetooth LE keyboard
+
+The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refreshes run with it off.
+
+| Case | Firmware |
+|---|---|
+| app enables BLE, no bond | pairing screen over the app (its pixels kept in PSRAM, its refreshes skipped): keyboards found (HID service 0x1812 or keyboard appearance; name, dBm), left/right choose, middle pairs, long press still ends the app |
+| picked | connect, then security first (bonding, LE Secure Connections, the X is DisplayOnly): the passkey in big digits, typed on the keyboard; a keyboard without keys for it pairs just-works |
+| encrypted | then (not before) HID service, characteristics, descriptors, report map, report references; report protocol if the map has a keyboard input report, else boot protocol (Protocol Mode 0); notifications on |
+| typing | reports as boot reports into `hid_keys.h`: KEY_DOWN / KEY_UP with HID usage and modifiers as on USB; `APP_EVENT_KEYBOARD` with `APP_KBD_BLE` when ready and when gone |
+| pairing screen gone | the app's pixels back with a full refresh; an app that drew meanwhile redraws on `APP_EVENT_KEYBOARD` |
+| bond | NimBLE's keys in NVS (`nimble_bond`), the keyboard's name and identity address in NVS `ble_kbd`; one keyboard: older bonds are deleted |
+| bonded, app enables BLE (also after sleep or a restart) | connect directly, no screen; nothing answers in 8 s: again after 2 s, until the app ends |
+| link lost while typing (sleep, range, Easy-Switch to another channel) | KEY_UP for keys held, `APP_EVENT_KEYBOARD`, connect again at once |
+| keyboard lost the bond (paired elsewhere): key missing, or it asks to pair again | our bond deleted, the list again with "The keyboard forgot this X: pair it again" |
+| wrong passkey / refused | the list again, "Pairing failed: try again" |
+| passkey not typed in 40 s (SMP gives up at 30 s) | the list again, "The passkey was not typed in time" |
+| not a keyboard (no HID service, no keyboard report, no boot input) | the list again, "That is not a keyboard" |
+| Apps menu | "Forget <name>" while a keyboard is bonded: both records cleared, the next app pairs again |
+| Wi-Fi at the same time | software coexistence (`CONFIG_ESP_COEX_SW_COEXIST_ENABLE`, a build error without it); Wi-Fi modem sleep while BLE is on (an app's `net_up`, and when BLE starts with Wi-Fi up); scan window 30 ms of 50 ms |
+
+| Memory (TRMNL_X build) | Bluetooth off (before) | on |
+|---|---|---|
+| app image (3 MB slot) | 1,708,000 B | 1,883,424 B (+175 KB; 60 % of the slot) |
+| internal RAM, static (IRAM + .data + .bss, always) | | +19,152 B (IRAM +14,920, .data +968, .bss +3,264) |
+| internal RAM left for the heap at boot (esp_idf_size DIRAM remain) | 182,561 B | 163,409 B |
+| while an app uses BLE: controller heap (internal), NimBLE host task 4 KB, keyboard task 8 KB | | log `BLE keys: radio on; internal RAM N bytes used` (device check) |
+| NimBLE pools, scan list, message queue, the app's saved screen (up to 1.3 MB in gray) | | PSRAM |
+| TRMNL's Wi-Fi + TLS (10 static RX buffers 16 KB, dynamic RX/TX, mbedTLS 16 KB in + 4 KB out internal) | fits as before | BLE is off then: only the static cost above applies |
 
 ## USB port roles
 
@@ -186,6 +216,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | paths, resume state, serial keys, upload header and CRC | `test/test_app_path`, `test_app_resume`, `test_app_keys`, `test_app_upload` | `pio test -e native -f test_app_*` |
 | USB port rules (roles: one at a time, only the owner switches back; power, 1 s wait, probe, removal, charger in host mode, drive showing, app exit, restart), HID reports to key events | `test/test_usb_port`, `test/test_hid_keys` | `pio test -e native -f test_usb_port -f test_hid_keys` |
 | configuration: header up to date, every key required, no configured value left in the sources | `test/config` | `.venv/bin/pytest test/config` |
+| Bluetooth keyboard: pairing and reconnect rules; security before discovery, report and boot protocol, encryption failures (key missing, wrong passkey, passkey timeout), step timeouts, bond deleted on the keyboard side; report maps (report IDs, bitmap, rollover, cut-off and random maps) | `test/test_ble_pair`, `test_ble_hogp`, `test_hid_report_map` (the sim has no Bluetooth) | `pio test -e native -f test_ble_pair -f test_ble_hogp -f test_hid_report_map` |
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X: upload over USB serial, other files kept, bad CRC, cut-off upload, refused headers | `test/sim/test_upload.py` | below |
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
@@ -270,3 +301,25 @@ Needs an app that calls `webshare_start` and shows `status.code`. Take a phone a
 | Home mode with the home Wi-Fi | `writer.local` opens on PC and iPhone; on Android use the IP |
 | Android and iPhone captive pop-up | opens the page (iOS pop-up may block cookies: then open it in Safari via `http://4.3.2.1`) |
 | Heap while serving a 100-file zip | no reset; serial log shows no allocation errors |
+
+### Device check: Bluetooth keyboard (Logitech POP Icon Keys; serial log at 115200)
+
+| Step | Look for |
+|---|---|
+| Flash this build, boot, let TRMNL refresh once | refresh works as before (Wi-Fi + TLS); no `BLE keys` lines (radio off) |
+| Send `keys.elf`, start Keys, nothing bonded | Keys' screen, then the pairing screen "Bluetooth keyboard", "Looking for keyboards..."; log `BLE keys: radio on; internal RAM N bytes used, M free (largest L)`: write N, M, L here |
+| Keyboard: hold an Easy-Switch key 3 s (its light blinks fast) | "POP Icon Keys  -NN dBm" in the list within 5 s; other keyboards nearby listed too, not phones or headphones |
+| Right, left (wraps), middle on the POP | "Connecting to POP Icon Keys...", then six big digits |
+| Type the digits on the POP, then Enter | within 2 s Keys' own screen back; log `paired with POP Icon Keys`, `ready (report protocol)` (or boot); Keys shows "keyboards now: ble" |
+| Type `a`, Shift+`a`, AltGr+`2`, arrows, F1, Fn media keys | `down usage 0x04 code 0x300`, `mods 0x01`, `mods 0x10` with 0x1f, codes 0x100..0x103, 0x108; media keys give nothing (consumer page) and no crash |
+| Hold a key, switch the POP to Easy-Switch channel 2 | `up` for the held key, "keyboards now: none", log `keyboard gone` within 2 s |
+| Back to channel 1, press a key | "keyboards now: ble" within 3 s, no pairing screen; typing works |
+| Leave the POP untouched until it sleeps (about 5 min), then press a key | reconnects as above; the first key may be lost |
+| Long press to end Keys, start it again | no pairing screen; typing within 3 s of a key press; log `radio off` at the end with internal RAM back near its start value |
+| Press reset with Keys running 10 s | Keys resumes and reconnects without pairing |
+| A Wi-Fi sync while typing: an app calling `http_request` in a loop (e.g. the writer's sync), type steadily for 1 min | no key lost or stuck; HTTPS calls succeed; note any lag over 0.5 s |
+| Apps menu, "Forget POP Icon Keys", start Keys | the item gone; the pairing screen again |
+| On the POP: pair channel 1 with a phone (the POP drops the X's bond), then start Keys on the X | log `failed (1)` then "The keyboard forgot this X: pair it again"; pairing again works |
+| Pick the POP, type a wrong passkey + Enter | "Pairing failed: try again", the list again |
+| Pick the POP, type nothing for 40 s | "The passkey was not typed in time", the list again |
+| Not proven by any test | the X's identity address stays the same (public), so the POP finds it after a restart; a keyboard with a resolvable private address (none of Logitech's so far) may not reconnect |

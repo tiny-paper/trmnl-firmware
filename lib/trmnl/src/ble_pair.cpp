@@ -85,7 +85,7 @@ uint32_t ble_pair_connected(ble_pair_t *p) {
 uint32_t ble_pair_failed(ble_pair_t *p, ble_fail_t why, uint32_t now) {
   if (p->state != BLE_PAIR_CONNECTING && p->state != BLE_PAIR_PASSKEY) return 0;
   if (p->bonded) {
-    if (why == BLE_FAIL_KEY_MISSING || why == BLE_FAIL_AUTH) {
+    if (why == BLE_FAIL_KEY_MISSING || why == BLE_FAIL_AUTH || why == BLE_FAIL_PASSKEY_TIMEOUT) {
       p->bonded = false;
       return BLE_ACT_DELETE_BOND | to_list(p, "The keyboard forgot this X: pair it again");
     }
@@ -96,6 +96,7 @@ uint32_t ble_pair_failed(ble_pair_t *p, ble_fail_t why, uint32_t now) {
   switch (why) {
   case BLE_FAIL_TIMEOUT: return to_list(p, "No answer: put the keyboard in pairing mode");
   case BLE_FAIL_NOT_HID: return to_list(p, "That is not a keyboard");
+  case BLE_FAIL_PASSKEY_TIMEOUT: return BLE_ACT_DELETE_BOND | to_list(p, "The passkey was not typed in time: pick the keyboard again");
   default: return BLE_ACT_DELETE_BOND | to_list(p, "Pairing failed: try again");
   }
 }

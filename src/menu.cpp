@@ -21,6 +21,7 @@
 #include <refresh_interval.h>
 #include <trmnl_log.h>
 
+#include "ble_keyboard.h"
 #include "cached_images.h"
 #include "fireworks.h"
 #include "fonts.h"
@@ -611,21 +612,34 @@ static menu_outcome_t run_menu_screens(SPECIAL_FUNCTION *function) {
       break;
     }
     case MENU_SCREEN_APPS: {
-      const char *labels[APPS_MAX + 2];
+      const char *labels[APPS_MAX + 3];
       for (int i = 0; i < app_count; i++) {
         labels[i] = app_names[i];
       }
-      labels[app_count] = "Receive over USB...";
-      labels[app_count + 1] = "Back";
-      int item = run_menu_screen(labels, app_count + 2, true);
+      int n = app_count;
+      labels[n++] = "Receive over USB...";
+      ble_pair_peer_t bond;
+      static char forget[48];
+      int forget_item = -1;
+      if (ble_keyboard_bond(&bond)) { // only while a Bluetooth keyboard is paired
+        snprintf(forget, sizeof(forget), "Forget %s", bond.name[0] ? bond.name : "the Bluetooth keyboard");
+        forget_item = n;
+        labels[n++] = forget;
+      }
+      labels[n++] = "Back";
+      int item = run_menu_screen(labels, n, true);
       if (item < 0) return MENU_OUTCOME_CLOSE;
-      if (item == app_count + 1) { // Back
+      if (item == n - 1) { // Back
         screen = MENU_SCREEN_MAIN;
         break;
       }
       if (item == app_count) {
         receive_apps();
         break; // the Apps submenu again, with what came
+      }
+      if (item == forget_item) {
+        ble_keyboard_forget(); // the next app that wants it shows the pairing screen
+        break;
       }
       app_chosen = item;
       return MENU_OUTCOME_APP;

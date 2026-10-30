@@ -34,6 +34,7 @@ typedef enum {
   BLE_FAIL_KEY_MISSING, // encryption refused: the keyboard lost our bond
   BLE_FAIL_AUTH, // pairing refused or a wrong passkey
   BLE_FAIL_NOT_HID, // connected, but no keyboard service
+  BLE_FAIL_PASSKEY_TIMEOUT, // the passkey was not typed in time
 } ble_fail_t;
 
 // Actions for the caller, as bits

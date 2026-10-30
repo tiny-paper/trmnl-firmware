@@ -298,7 +298,7 @@ typedef struct app_api {
 
   // Keyboards (docs/apps.md "Keyboards"): `sources` APP_KBD_* to use, 0 to stop. USB: the port becomes a host
   // only while no charger or computer powers it; Bluetooth: a pairing screen if no keyboard is bonded yet.
-  // Their keys come as KEY_DOWN / KEY_UP with hid_usage. Returns 0, or APP_ENOTSUP for a source the firmware lacks
+  // Their keys come as KEY_DOWN / KEY_UP with hid_usage. Returns 0, APP_EINVAL (unknown bits) or APP_ENOMEM
   int (*keyboard_enable)(uint32_t sources);
   // The APP_KBD_* bits of the keyboards connected now
   uint32_t (*keyboard_status)(void);
