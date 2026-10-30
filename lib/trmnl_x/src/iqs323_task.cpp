@@ -313,9 +313,11 @@ static void iqs323_publish_snapshot(void)
     if (g_touchbar_snapshot.ch1_touch && !before.ch1_touch) g_touch_starts |= 1 << 1;
     if (g_touchbar_snapshot.ch2_touch && !before.ch2_touch) g_touch_starts |= 1 << 2;
 
+#ifdef IQS323_DEBUG_STREAM // every RDY window in streaming mode, with the mutex held: only for touch debugging
     Serial.printf("IQS323 Task: publish snapshot at t=%lu ch0=%d ch1=%d ch2=%d STATUS=0x%02X 0x%02X\n",
         (unsigned long)millis(), g_touchbar_snapshot.ch0_touch, g_touchbar_snapshot.ch1_touch, g_touchbar_snapshot.ch2_touch,
         iqs323.IQSMemoryMap.SYSTEM_STATUS[0], iqs323.IQSMemoryMap.SYSTEM_STATUS[1]);
+#endif
 
     g_touchbar_snapshot.last_updated_ms = millis();
 }

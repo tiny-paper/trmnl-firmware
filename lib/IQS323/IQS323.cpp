@@ -306,7 +306,9 @@ void IQS323::run(void)
     case IQS323_STATE_RUN:
       if (iqs323_deviceRDY)
       {
+#ifdef IQS323_DEBUG_STREAM // one line per RDY window: dozens a second in streaming mode (apps, menu)
         Serial.println("RDY time: " + String(last_rdy_time) + " us, " + "time delta: " + String(micros() - last_rdy_time) + " us, " + "time between RDYs: " + String(last_rdy_time - prev_rdy_time) + " us");
+#endif
         prev_rdy_time = last_rdy_time;
         queueValueUpdates();
         iqs323_deviceRDY = false;
