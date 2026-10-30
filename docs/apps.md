@@ -86,11 +86,12 @@ Keyboard host mode (`usb_port_step`, applied by `src/usb_keyboard.cpp`): device 
 |---|---|
 | no app asked for USB keys, or the app ended | device mode (the app's end waits for it) |
 | a charger or computer powers the port (charger PG, IOX pin 0), or PG unreadable | device mode, in the same 100 ms poll |
+| a panel refresh holds the expander (PG not readable then) | the last reading stays, host mode too; read again after the refresh. Unreadable only after 30 s (a hang) |
 | on battery for 1 s, app wants USB keys | host mode: 5 V boost on (IOX pin 1), USB host + `espressif/usb_host_hid` (boot keyboard) |
 | host mode, no keyboard within 3 s / keyboard removed | device mode, next probe after 10 s |
 | restart, crash, deep sleep | device mode: the switch-back of "USB port roles" |
 | the USB drive shows | device mode, no probe until it ends |
-| USB stack does not stop within 1 s, or the boost cannot be switched off | restart (which starts in device mode) |
+| USB stack does not stop within 1 s, or the boost cannot be switched off within 8 s (a refresh holds the expander) | restart (which starts in device mode) |
 
 ## Wi-Fi page (last resort for moving files)
 

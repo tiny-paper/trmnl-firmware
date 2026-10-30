@@ -19,6 +19,7 @@
 #define IOX_CHG_PG       0 // input, low: the charger has input power (VBUS from a charger or computer)
 #define IOX_OTG_EN       1 // output, high: the charger's boost drives VBUS
 #define STOP_DEADLINE_MS 1000 // the USB stack must be down by then, else a restart
+#define BOOST_OFF_WAIT_MS 8000 // the boost goes off after the refresh holding the expander (seconds), else a restart
 
 static TaskHandle_t port_task;
 static volatile bool wanted, stop_task;
@@ -223,12 +224,11 @@ static void port_loop(void *arg) {
         if (!boost(true, 200)) Log_error("USB keys: boost not switched on (expander busy)");
       }
     } else if (mode == USB_PORT_DEVICE && applied == USB_PORT_HOST) {
-      uint32_t deadline = millis() + STOP_DEADLINE_MS;
-      if (!boost(false, STOP_DEADLINE_MS / 2)) {
+      if (!boost(false, BOOST_OFF_WAIT_MS)) {
         Log_error("USB keys: boost could not be switched off - restarting");
         esp_restart(); // the restart's handler and the boot switch it off
       }
-      if (!host_stop(deadline)) {
+      if (!host_stop(millis() + STOP_DEADLINE_MS)) {
         Log_error("USB keys: USB host did not stop within %d ms - restarting", STOP_DEADLINE_MS);
         esp_restart();
       }

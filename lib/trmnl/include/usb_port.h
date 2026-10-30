@@ -83,8 +83,11 @@ const char *usb_port_why_str(usb_port_why_t why);
 // ---- the charger reading ----
 
 // The charger's power-good pin sits on the IO expander behind the panel's lock (app_host.panel). Each poll tries the
-// lock without waiting: `got` true with the pin's level in `input_power`, false when the lock was busy.
-#define USB_POWER_STALE_MS 1000 // no reading this long counts as unknown
+// lock without waiting: `got` true with the pin's level in `input_power`, false when the lock was busy. A busy lock
+// (a refresh: full or gray, seconds) keeps the last reading and the next free poll reads again; on 97fff83 it read as
+// unknown after 1 s and host mode dropped in every long refresh (the lost first key). Only a lock held this long, a
+// hang rather than a refresh, counts as unknown (never boost blind):
+#define USB_POWER_STALE_MS 30000
 
 typedef struct {
   usb_power_t last;

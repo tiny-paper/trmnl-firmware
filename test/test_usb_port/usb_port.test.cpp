@@ -116,6 +116,56 @@ void test_clock_wrap() {
   TEST_ASSERT_EQUAL(USB_PORT_RETRY_MS, host_after(USB_PORT_RETRY_MS * 2, true, USB_POWER_NO, false));
 }
 
+// ---- the charger reading behind the panel's lock ----
+
+// Owner, 2026-10-30: the USB keyboard "falls asleep and needs a key to wake up, the key got lost". On 97fff83 a full
+// refresh held the panel's lock over USB_POWER_STALE_MS: the charger read as unknown, host mode dropped (about 2 s of
+// re-enumeration) and the first key was lost. A busy lock keeps the last reading; host mode stays.
+static usb_power_reading_t reading;
+
+// Polls `ms` with the lock busy (`got` false) or free with the pin's level; the keyboard stays plugged in
+static bool host_throughout(uint32_t ms, bool got, bool input_power) {
+  bool host = true;
+  for (uint32_t t = 0; t < ms; t += USB_PORT_POLL_MS) {
+    now += USB_PORT_POLL_MS;
+    usb_port_input_t in = {true, usb_power_update(&reading, now, got, input_power), true};
+    host = host && usb_port_step(&p, now, &in) == USB_PORT_HOST;
+  }
+  return host;
+}
+
+void test_a_long_refresh_keeps_host_mode() {
+  usb_power_reading_init(&reading);
+  TEST_ASSERT_EQUAL(USB_POWER_UNKNOWN, usb_power_update(&reading, now, false, false)); // never read: never boost blind
+  usb_power_update(&reading, now, true, false);
+  run(1000, true, USB_POWER_NO, true);
+  TEST_ASSERT_EQUAL(USB_PORT_HOST, p.mode);
+  TEST_ASSERT_TRUE_MESSAGE(host_throughout(1500, false, false), "a 1.5 s full refresh dropped host mode");
+  TEST_ASSERT_TRUE_MESSAGE(host_throughout(5000, false, false), "a 5 s gray refresh dropped host mode");
+  TEST_ASSERT_TRUE(host_throughout(1000, true, false)); // the lock free again: read, still no input power
+  TEST_ASSERT_EQUAL(USB_WHY_KEYBOARD, p.why);
+}
+
+void test_after_the_lock_a_charger_still_ends_host_mode() {
+  usb_power_reading_init(&reading);
+  usb_power_update(&reading, now, true, false);
+  run(1000, true, USB_POWER_NO, true);
+  host_throughout(3000, false, false);
+  now += USB_PORT_POLL_MS;
+  usb_port_input_t in = {true, usb_power_update(&reading, now, true, true), true}; // read again: input power
+  TEST_ASSERT_EQUAL(USB_PORT_DEVICE, usb_port_step(&p, now, &in));
+  TEST_ASSERT_EQUAL(USB_WHY_INPUT_POWER, p.why);
+}
+
+void test_a_lock_held_for_good_reads_as_unknown() {
+  usb_power_reading_init(&reading);
+  usb_power_update(&reading, now, true, false);
+  now += USB_POWER_STALE_MS - 1;
+  TEST_ASSERT_EQUAL(USB_POWER_NO, usb_power_update(&reading, now, false, false));
+  now += 2;
+  TEST_ASSERT_EQUAL(USB_POWER_UNKNOWN, usb_power_update(&reading, now, false, false)); // a hang, not a refresh
+}
+
 // ---- the PHY's roles: the keyboard's host mode and the USB drive never take it from each other ----
 
 void test_roles_start_serial_and_one_role_at_a_time() {
@@ -162,6 +212,9 @@ void test_no_host_mode_while_the_drive_has_the_port() {
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_and_stays_in_device_mode_without_an_app);
+  RUN_TEST(test_a_long_refresh_keeps_host_mode);
+  RUN_TEST(test_after_the_lock_a_charger_still_ends_host_mode);
+  RUN_TEST(test_a_lock_held_for_good_reads_as_unknown);
   RUN_TEST(test_never_host_while_powered_or_unreadable);
   RUN_TEST(test_host_only_after_a_second_without_input_power);
   RUN_TEST(test_a_power_blip_restarts_the_second);
