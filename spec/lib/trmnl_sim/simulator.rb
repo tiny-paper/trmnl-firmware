@@ -208,6 +208,12 @@ module TrmnlSim
     # End a deep sleep now, as if its timer expired.
     def wake = post("/wake")
 
+    # Bytes from the computer on the S3's USB serial port (USB serial/JTAG), as a terminal or a
+    # script sends them (POST /serial).
+    def serial(data)
+      checked(:post, "/serial", request(:post, "/serial", raw: data.b))
+    end
+
     def set_wifi(available)
       post("/wifi", { available: })
     end
