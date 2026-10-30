@@ -152,6 +152,17 @@ void test_tail_gives_the_last_lines_that_fit() {
   TEST_ASSERT_EQUAL(-1, evlog_ring_tail(&r, 3, nullptr, 10));
 }
 
+void test_an_earlier_boots_event_keeps_its_boot() {
+  evlog_ring_new_boot(&r); // 1: the crashed boot, 2: now
+  evlog_ring_add(&r, 10, 0, "kept in the file");
+  evlog_ring_add_boot(&r, 1, 20, 0, "BLE kbd: POP disconnected, reason 0x213");
+  evlog_ring_add_boot(&r, 1, 20, 0, "crash: ...");
+  evlog_ring_new_boot(&r);
+  evlog_ring_add(&r, 5, 0, "boot: crash (panic) (4)");
+  TEST_ASSERT_EQUAL_STRING("#1 0.020s - BLE kbd: POP disconnected, reason 0x213", at(&r, 1));
+  TEST_ASSERT_EQUAL_STRING("#2 0.005s - boot: crash (panic) (4)", at(&r, 3));
+}
+
 void test_clear_keeps_the_boot() {
   evlog_ring_new_boot(&r);
   evlog_ring_add(&r, 1, 0, "x");
@@ -194,6 +205,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_damaged_file_loads_as_an_empty_log);
   RUN_TEST(test_records_that_do_not_add_up_load_as_an_empty_log);
   RUN_TEST(test_tail_gives_the_last_lines_that_fit);
+  RUN_TEST(test_an_earlier_boots_event_keeps_its_boot);
   RUN_TEST(test_clear_keeps_the_boot);
   RUN_TEST(test_flash_writes_are_rate_limited);
   return UNITY_END();

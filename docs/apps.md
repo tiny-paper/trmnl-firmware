@@ -36,9 +36,10 @@ Recent device events kept on the X across restarts and deep sleep (`src/evlog.cp
 
 | | |
 |---|---|
-| logged | boot and its reset reason (not deep sleep wakes); BLE keyboard connected, ready, disconnected (reason code and words), connect failed, failed; USB keyboard connected, removed, host mode dropped with a keyboard on, charger unreadable, boost not on; app start, resume, end, errors, restarts; `Net:` lines of `net_up` and `http_request`. Firmware code: `evlog_add(fmt, ...)` or `Log_event(fmt, ...)` (serial log too) |
+| logged | boot and its reset reason (not deep sleep wakes); BLE keyboard connected, ready, disconnected (reason code and words), connect failed, failed; USB keyboard connected, removed, host mode dropped with a keyboard on, charger unreadable, boost not on; app start, resume, long press, end with its reason (`quit by itself`, `after a long press`, `error`), load errors, restarts; out of memory (failed allocations, counted up); `Net:` lines of `net_up` and `http_request`. Firmware code: `evlog_add(fmt, ...)` or `Log_event(fmt, ...)` (serial log too) |
 | line | `#<boot> <uptime s> <UTC time or -> <text>`; the same text again in a row: ` (xN)` |
-| writes | only on events, at most every `event_log.flush_gap_ms`; at once before the firmware's own restarts and sleep. A crash loses at most that gap. A damaged file: empty log, "the saved log was damaged" |
+| writes | only on events, at most every `event_log.flush_gap_ms`; at once before the firmware's own restarts and sleep. The newest 6 events not yet written are also kept in RTC memory (`src/evlog_crash.cpp`) and put in after a restart. A damaged file: empty log, "the saved log was damaged" |
+| crash | panic or watchdog reset: `crash: <reason> at app+0x<offset> [backtrace...], app <name> entry 0x<entry>` in the crashed boot, after its events (RTC memory, written by the Arduino core's panic hook). `app+0x<offset>`: `xtensa-esp32s3-elf-addr2line -e <app>.elf` at the ELF's `e_entry` + offset (`tools/app_addr2line.py`); outside the app the raw address. No panic record (watchdog reset, brownout): said so |
 | read | `TAPP EVLOG` + newline on the serial port while an app runs: `TAPP EVLOG <line>` each, oldest first, then `TAPP EVLOG END`. `TAPP EVLOG CLEAR`: `TAPP EVLOG CLEARED`. An app: `event_log_lines` |
 
 ## Keyboards

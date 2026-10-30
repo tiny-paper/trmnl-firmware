@@ -118,12 +118,16 @@ static bool same_text(const evlog_ring_t *r, uint32_t off, const char *text, uin
 }
 
 void evlog_ring_add(evlog_ring_t *r, uint32_t ms, int64_t wall, const char *text) {
+  evlog_ring_add_boot(r, (uint16_t)r->h.boot, ms, wall, text);
+}
+
+void evlog_ring_add_boot(evlog_ring_t *r, uint16_t boot, uint32_t ms, int64_t wall, const char *text) {
   char t[EVLOG_TEXT_MAX];
   uint8_t len = 0;
   for (const char *c = text ? text : ""; *c && len < EVLOG_TEXT_MAX; c++) {
     t[len++] = (unsigned char)*c < 0x20 || *c == 0x7F ? ' ' : *c;
   }
-  rec_t x = {ms, wall >= APP_CLOCK_SET_AFTER && wall <= 0xFFFFFFFFll ? (uint32_t)wall : 0u, (uint16_t)r->h.boot, 1,
+  rec_t x = {ms, wall >= APP_CLOCK_SET_AFTER && wall <= 0xFFFFFFFFll ? (uint32_t)wall : 0u, boot, 1,
              len};
   r->dirty = true;
   if (r->h.used) {

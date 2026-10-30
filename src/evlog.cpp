@@ -2,6 +2,7 @@
 #ifdef BOARD_TRMNL_X
 
 #include "evlog.h"
+#include "evlog_crash.h"
 
 #include <Arduino.h>
 #include <app_api.h>
@@ -53,6 +54,7 @@ static void write_out(bool force) {
   if (!closed && (force ? ring.dirty : evlog_ring_flush_due(&ring, millis()))) {
     go = evlog_ring_save(&ring, snap, EVLOG_BYTES) == EVLOG_BYTES;
     evlog_ring_flushed(&ring, millis());
+    if (go) evlog_crash_written(); // in the file from now on, not needed in RTC memory
   }
   xSemaphoreGive(mu);
   if (go) {
@@ -69,10 +71,29 @@ static void write_out(bool force) {
   xSemaphoreGive(wmu);
 }
 
+// A failed allocation anywhere: noted without a lock here (any task, any state), logged by the flush task
+static volatile uint32_t oom_count, oom_size, oom_caps;
+
+static void on_alloc_failed(size_t size, uint32_t caps, const char *function) {
+  (void)function;
+  oom_size = (uint32_t)size;
+  oom_caps = caps;
+  oom_count = oom_count + 1;
+}
+
 static void flusher(void *arg) {
   (void)arg;
+  uint32_t oom_seen = 0;
   while (true) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(EVLOG_TASK_POLL_MS));
+    uint32_t n = oom_count;
+    if (n != oom_seen) {
+      // one text per caps: repeats count up (xN) instead of filling the log
+      Log_info("Event log: out of memory, %lu allocations failed, last %lu bytes caps 0x%lx",
+               (unsigned long)(n - oom_seen), (unsigned long)oom_size, (unsigned long)oom_caps);
+      evlog_add("out of memory: allocations failed (caps 0x%lx)", (unsigned long)oom_caps);
+      oom_seen = n;
+    }
     write_out(false);
   }
 }
@@ -92,12 +113,31 @@ void evlog_begin(void) {
   if (f) f.close();
   bool loaded = n && evlog_ring_load(&ring, snap, n);
   if (n && !loaded) Log_error("Event log: %s unreadable (%u bytes), started empty", EVLOG_FILE, (unsigned)n);
+  esp_reset_reason_t why = esp_reset_reason();
+  bool crashed = why == ESP_RST_PANIC || why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT || why == ESP_RST_WDT;
+  // the last boot's events not yet in the file, and a crash's record, from RTC memory
+  static evlog_pending_t pending[EVLOG_CRASH_PENDING];
+  char crash[EVLOG_TEXT_MAX + 1];
+  uint16_t pboot = 0;
+  int np = evlog_crash_take(crashed, pending, EVLOG_CRASH_PENDING, crash, sizeof(crash), &pboot);
+  uint32_t last_ms = 0;
+  for (int i = 0; i < np; i++) {
+    evlog_ring_add_boot(&ring, pending[i].boot, pending[i].ms, pending[i].wall, pending[i].text);
+    last_ms = pending[i].ms;
+  }
+  if (crash[0]) {
+    evlog_ring_add_boot(&ring, pboot ? pboot : (uint16_t)ring.h.boot, last_ms, 0, crash);
+    Log_error("Event log: %s", crash);
+  }
+  if (pboot && (uint16_t)(pboot - (uint16_t)ring.h.boot) < 0x8000u) ring.h.boot = pboot; // a boot that wrote nothing
   evlog_ring_new_boot(&ring);
+  evlog_crash_set_boot((uint16_t)ring.h.boot);
   wmu = w;
   mu = m;
-  esp_reset_reason_t why = esp_reset_reason();
   if (why != ESP_RST_DEEPSLEEP) evlog_add("boot: %s (%d)", reset_str(why), (int)why); // not one line per wake
   if (n && !loaded) evlog_add("event log: the saved log was damaged and dropped");
+  heap_caps_register_failed_alloc_callback(on_alloc_failed);
+  evlog_crash_begin();
   if (xTaskCreatePinnedToCore(flusher, "evlog", 4096, nullptr, 1, &task, 1) != pdPASS) {
     Log_error("Event log: no flush task, written only at restarts");
   }
@@ -111,8 +151,11 @@ void evlog_add(const char *fmt, ...) {
   va_start(ap, fmt);
   vsnprintf(text, sizeof(text), fmt, ap);
   va_end(ap);
+  uint32_t ms = millis();
+  int64_t wall = (int64_t)time(nullptr);
   xSemaphoreTake(mu, portMAX_DELAY);
-  evlog_ring_add(&ring, millis(), (int64_t)time(nullptr), text);
+  evlog_ring_add(&ring, ms, wall, text);
+  evlog_crash_pending((uint16_t)ring.h.boot, ms, wall > 0 && wall <= 0xFFFFFFFFll ? (uint32_t)wall : 0u, text);
   xSemaphoreGive(mu);
   if (task) xTaskNotifyGive(task);
 }

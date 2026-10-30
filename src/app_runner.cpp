@@ -29,6 +29,7 @@
 #include "app_host.h"
 #include "ble_keyboard.h"
 #include "evlog.h"
+#include "evlog_crash.h"
 #include "keyboards.h"
 #include "usb_drive.h"
 #include "usb_port_role.h"
@@ -217,10 +218,13 @@ static const char *app_load(const char *path, esp_elf_t *elf, app_info_t *info) 
   return nullptr;
 }
 
+static bool app_exit_asked; // a long press asked the running app to exit
+
 // Waits for the app to end, pumping its input. Returns false if it was told to exit and did not
 // within APP_EXIT_GRACE_MS.
 static bool app_supervise(PreferencesPersistence &persistence) {
   uint32_t started = millis();
+  app_exit_asked = false;
   bool marked_started = false, marked_input = false;
   uint32_t exit_asked = 0;
   while (xSemaphoreTake(app_host.done, pdMS_TO_TICKS(APP_POLL_MS)) != pdTRUE) {
@@ -236,13 +240,14 @@ static bool app_supervise(PreferencesPersistence &persistence) {
     usb_drive_service();
     if (!usb_drive_busy()) pump_keys(); // the serial port is off while the drive shows
     if (pump_touch() && !exit_asked) {
-      Log_info("Apps: long press - asking %s to exit", app_host.name);
+      Log_event("Apps: long press - asking %s to exit", app_host.name);
       app_resume_ended(persistence);
       app_event_t ev = {};
       ev.type = APP_EVENT_EXIT;
       xQueueReset(app_host.events);
       post(ev);
       exit_asked = millis();
+      app_exit_asked = true;
     }
     // An import under way finishes first (a cut would be safe, the journal, but slower to redo)
     if (usb_drive_importing()) exit_asked = exit_asked ? millis() : 0;
@@ -294,12 +299,14 @@ void apps_run(const char *path) {
   Log_info("Apps: %s (%s) running, %lu bytes of stack", info.name, path, (unsigned long)info.stack_size);
   // For tools/app_addr2line.py: the app's frames in a panic backtrace are entry - e_entry + their ELF address
   Log_info("Apps: %s entry at 0x%08lx", app_host.name, (unsigned long)(uintptr_t)elf.entry);
+  evlog_crash_app(app_host.name, (uint32_t)(uintptr_t)elf.entry); // a crash's PC as an offset into the app
 
   if (!app_supervise(persistence)) {
     // Its task may hold a lock or be anywhere in its code: only a restart cleans that up
     Log_error("Apps: %s did not exit within %d ms - restarting into TRMNL", app_host.name, APP_EXIT_GRACE_MS);
     app_sleep_gate_app_ended();
     app_resume_ended(persistence);
+    evlog_crash_app(nullptr, 0);
     evlog_add("Apps: %s did not exit within %d ms, restarting", app_host.name, APP_EXIT_GRACE_MS);
     evlog_flush(false);
     delay(100);
@@ -308,7 +315,10 @@ void apps_run(const char *path) {
   app_sleep_gate_app_ended(); // the device is TRMNL's again: its error screen or image, then sleep
   usb_drive_end_for_exit(); // serial back, the computer's changes taken or not, before anything else
   int code = app_host.code;
-  Log_event("Apps: %s ended with %d", app_host.name, code);
+  evlog_crash_app(nullptr, 0);
+  // why it ended: the user's long press, the app quitting by itself (return or exit), or its error
+  const char *how = app_exit_asked ? "after a long press" : code == 0 ? "quit by itself" : "error";
+  Log_event("Apps: %s ended with %d (%s)", app_host.name, code, how);
   keyboards_end(); // the USB port back in device mode before anything else
   usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
   touchbar_input_end();

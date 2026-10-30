@@ -51,6 +51,10 @@ void evlog_ring_new_boot(evlog_ring_t *r);
 // repeat (to 255). The oldest records go when there is no room.
 void evlog_ring_add(evlog_ring_t *r, uint32_t ms, int64_t wall, const char *text);
 
+// The same for an earlier boot's event (kept over a crash in RTC memory, src/evlog_crash.cpp): `boot` instead of the
+// ring's own
+void evlog_ring_add_boot(evlog_ring_t *r, uint16_t boot, uint32_t ms, int64_t wall, const char *text);
+
 void evlog_ring_clear(evlog_ring_t *r); // no records; the boot number stays
 
 int evlog_ring_count(const evlog_ring_t *r);
