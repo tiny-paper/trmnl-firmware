@@ -11,6 +11,14 @@ void test_connecting_a_keyboard_leaves_wifi_its_share() {
   TEST_ASSERT_TRUE(ble_share_connect().window < ble_share_connect().itvl);
 }
 
+// App start: the bonded keyboard is looked for with the whole radio for 5 s, then shared again
+void test_first_5_s_after_start_full_duty_then_shared() {
+  TEST_ASSERT_EQUAL(100, ble_share_duty(ble_share_connect_at(0)));
+  TEST_ASSERT_EQUAL(100, ble_share_duty(ble_share_connect_at(4999)));
+  TEST_ASSERT_LESS_OR_EQUAL(60, ble_share_duty(ble_share_connect_at(5000)));
+  TEST_ASSERT_LESS_OR_EQUAL(60, ble_share_duty(ble_share_connect_at(600000)));
+}
+
 void test_listing_keyboards_leaves_wifi_its_share() {
   TEST_ASSERT_LESS_OR_EQUAL(60, ble_share_duty(ble_share_list()));
 }
@@ -62,6 +70,7 @@ void test_log_line_truncates_safely() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_connecting_a_keyboard_leaves_wifi_its_share);
+  RUN_TEST(test_first_5_s_after_start_full_duty_then_shared);
   RUN_TEST(test_listing_keyboards_leaves_wifi_its_share);
   RUN_TEST(test_nimble_default_connect_scan_is_all_ble);
   RUN_TEST(test_join_runs_with_modem_sleep_while_ble_is_on);

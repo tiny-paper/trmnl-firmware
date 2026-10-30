@@ -8,8 +8,8 @@
 #ifdef BOARD_TRMNL_X
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <app_api.h>
+#include <ble_conn_params.h>
 #include <ble_hogp.h>
 #include <esp_heap_caps.h>
 #include <esp_random.h>
@@ -25,9 +25,12 @@
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
 
 #include "app_host.h"
 #include "ble_keyboard.h"
+#include "ble_keyboard_store.h"
 #include "evlog.h"
 #include "keyboards.h"
 
@@ -37,6 +40,12 @@
 #endif
 #if !CONFIG_BT_NIMBLE_SECURITY_ENABLE || !CONFIG_BT_NIMBLE_SM_SC || !CONFIG_BT_NIMBLE_NVS_PERSIST
 #error "Bluetooth keyboard: secure connections and bonds kept in NVS"
+#endif
+// A keyboard reads the X's GATT database too (MTU, device name, services). Without a GATT server NimBLE drops
+// those requests unanswered (ble_att.c: no error response either), ATT's 30 s transaction timeout runs out and
+// the keyboard disconnects: every 30 s, all the time (Logitech POP Icon Keys)
+#if !CONFIG_BT_NIMBLE_GATT_SERVER || !CONFIG_BT_NIMBLE_GAP_SERVICE
+#error "Bluetooth keyboard: a GATT server answers the keyboard's requests"
 #endif
 #if !CONFIG_ESP_COEX_SW_COEXIST_ENABLE
 #error "Bluetooth keyboard: Wi-Fi and Bluetooth coexistence (typing during a Wi-Fi sync)"
@@ -63,8 +72,6 @@ extern "C" bool btInUse(void) { return true; }
 #define SCREEN_GAP_MS   700 // the list redraws at most this often
 #define MSG_DATA        256 // an ATT value: MTU is at most 256 here
 #define STOP_MS         2000
-#define PREFS_NAMESPACE "ble_kbd"
-#define PREFS_PEER      "peer"
 
 typedef enum {
   M_SYNC,
@@ -83,7 +90,8 @@ typedef enum {
   M_READ_DATA,
   M_READ_DONE,
   M_WRITTEN,
-  M_NOTIFY,
+  M_NOTIFY, // status 1: an indication
+  M_PARAMS, // a = how (PARAMS_*), status = our answer, data = ble_conn_params_t
   M_TAP,
   M_STOP,
 } msg_type_t;
@@ -114,6 +122,9 @@ static bool synced, scanning;
 static uint32_t screen_drawn_at;
 static bool screen_dirty;
 static uint32_t pending; // ble_pair_enable's actions, carried out once NimBLE is in sync
+static uint32_t enabled_at; // the app asked for the keyboard: full duty for BLE_SHARE_FULL_MS
+
+enum { PARAMS_LL, PARAMS_L2CAP, PARAMS_UPDATED };
 
 static void post(const msg_t *m) {
   if (msgs && xQueueSend(msgs, m, 0) != pdTRUE) Log_info("BLE keys: message %d dropped", m->type);
@@ -131,11 +142,11 @@ static void post_simple(msg_type_t type, uint16_t c, int status, uint16_t a = 0,
   post(&m);
 }
 
-static void post_data(msg_type_t type, uint16_t c, uint16_t handle, const struct os_mbuf *om) {
+static void post_data(msg_type_t type, uint16_t c, uint16_t handle, const struct os_mbuf *om, int status = 0) {
   static msg_t m;
   m.type = type;
   m.conn = c;
-  m.status = 0;
+  m.status = status;
   m.a = handle;
   uint16_t n = OS_MBUF_PKTLEN(om);
   m.len = n > MSG_DATA ? MSG_DATA : n;
@@ -143,27 +154,10 @@ static void post_data(msg_type_t type, uint16_t c, uint16_t handle, const struct
   post(&m);
 }
 
-// ---- the bond record (the keyboard's name and address; NimBLE keeps the keys) ----
-
-bool ble_keyboard_bond(ble_pair_peer_t *out) {
-  Preferences prefs;
-  if (!prefs.begin(PREFS_NAMESPACE, true)) return false;
-  bool ok = prefs.getBytesLength(PREFS_PEER) == sizeof(*out) && prefs.getBytes(PREFS_PEER, out, sizeof(*out)) == sizeof(*out);
-  prefs.end();
-  if (ok) out->name[BLE_PAIR_NAME_MAX - 1] = '\0';
-  return ok;
-}
-
-static void bond_record(const ble_pair_peer_t *peer) {
-  Preferences prefs;
-  if (!prefs.begin(PREFS_NAMESPACE, false)) return;
-  if (peer) prefs.putBytes(PREFS_PEER, peer, sizeof(*peer));
-  else prefs.remove(PREFS_PEER);
-  prefs.end();
-}
+// ---- the bond (ble_keyboard_store.cpp keeps the record and the HID handles) ----
 
 void ble_keyboard_forget(void) {
-  bond_record(nullptr);
+  kbd_store_bond(nullptr);
   if (running) {
     ble_store_clear();
   } else {
@@ -268,9 +262,42 @@ static int on_write(uint16_t c, const struct ble_gatt_error *e, struct ble_gatt_
   return 0;
 }
 
+// A parameter request from the keyboard: answered here and now (ble_conn_params.h), logged by the task
+static int params_answer(uint16_t c, int how, const struct ble_gap_upd_params *p) {
+  ble_conn_params_t r = {p->itvl_min, p->itvl_max, p->latency, p->supervision_timeout};
+  uint8_t answer = ble_conn_param_answer(&r);
+  static msg_t m;
+  m.type = M_PARAMS;
+  m.conn = c;
+  m.status = answer;
+  m.a = (uint16_t)how;
+  m.len = sizeof(r);
+  memcpy(m.data, &r, sizeof(r));
+  post(&m);
+  return answer; // 0 accepts; 0x3B: the link layer's negative reply reason, L2CAP's reject
+}
+
 static int gap_event(struct ble_gap_event *ev, void *arg) {
   (void)arg;
   switch (ev->type) {
+  case BLE_GAP_EVENT_CONN_UPDATE_REQ: // link layer: self_params is a copy of the peer's, accepted as is
+    return params_answer(ev->conn_update_req.conn_handle, PARAMS_LL, ev->conn_update_req.peer_params);
+  case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+    return params_answer(ev->conn_update_req.conn_handle, PARAMS_L2CAP, ev->conn_update_req.peer_params);
+  case BLE_GAP_EVENT_CONN_UPDATE: {
+    struct ble_gap_conn_desc d;
+    static msg_t m;
+    m.type = M_PARAMS;
+    m.conn = ev->conn_update.conn_handle;
+    m.status = ev->conn_update.status;
+    m.a = PARAMS_UPDATED;
+    ble_conn_params_t r = {};
+    if (ble_gap_conn_find(m.conn, &d) == 0) r = {d.conn_itvl, d.conn_itvl, d.conn_latency, d.supervision_timeout};
+    m.len = sizeof(r);
+    memcpy(m.data, &r, sizeof(r));
+    post(&m);
+    break;
+  }
   case BLE_GAP_EVENT_CONNECT:
     if (ev->connect.status == 0) post_simple(M_CONNECTED, ev->connect.conn_handle, 0);
     else post_simple(M_CONNECT_FAILED, 0, ev->connect.status);
@@ -301,7 +328,9 @@ static int gap_event(struct ble_gap_event *ev, void *arg) {
     post_simple(M_ENC, ev->repeat_pairing.conn_handle, BLE_HS_ERR_HCI_BASE + BLE_ERR_PINKEY_MISSING);
     return BLE_GAP_REPEAT_PAIRING_IGNORE;
   case BLE_GAP_EVENT_NOTIFY_RX:
-    if (ev->notify_rx.om) post_data(M_NOTIFY, ev->notify_rx.conn_handle, ev->notify_rx.attr_handle, ev->notify_rx.om);
+    if (ev->notify_rx.om) {
+      post_data(M_NOTIFY, ev->notify_rx.conn_handle, ev->notify_rx.attr_handle, ev->notify_rx.om, ev->notify_rx.indication);
+    }
     break;
   default:
     break;
@@ -362,7 +391,7 @@ static void save_bond(void) {
       if (ble_addr_cmp(&peers[i], &keep) != 0) ble_store_util_delete_peer(&peers[i]); // one keyboard only
     }
   }
-  bond_record(&pair.target);
+  kbd_store_bond(&pair.target);
   Log_info("BLE keys: paired with %s", pair.target.name);
 }
 
@@ -370,7 +399,7 @@ static void apply(uint32_t act) {
   if (act & BLE_ACT_DELETE_BOND) {
     ble_addr_t a = to_addr(&pair.target);
     ble_store_util_delete_peer(&a);
-    bond_record(nullptr);
+    kbd_store_bond(nullptr); // and the kept handles
     Log_info("BLE keys: bond with %s deleted", pair.target.name);
   }
   if (act & BLE_ACT_SAVE_BOND) save_bond();
@@ -388,19 +417,25 @@ static void apply(uint32_t act) {
   if (act & BLE_ACT_CONNECT) {
     scan(false);
     ble_addr_t a = to_addr(&pair.target);
-    // NimBLE's defaults, except the scan: its default window fills the interval and starves Wi-Fi while a
-    // bonded keyboard sleeps (an attempt every CONNECT_MS + BLE_PAIR_RETRY_MS)
-    ble_share_scan_t share = ble_share_connect();
+    // The scan shares the radio: NimBLE's default window fills the interval and starves Wi-Fi while a bonded
+    // keyboard sleeps (an attempt every CONNECT_MS + BLE_PAIR_RETRY_MS). Not in the first BLE_SHARE_FULL_MS
+    // after the app asked: Wi-Fi is idle then, and that attempt ends when they are over.
+    // The link starts fast (ble_conn_setup_params); the keyboard's own request, accepted, follows
+    uint32_t since = millis() - enabled_at;
+    ble_share_scan_t share = ble_share_connect_at(since);
+    int32_t attempt_ms = since < BLE_SHARE_FULL_MS ? (int32_t)(BLE_SHARE_FULL_MS - since) : CONNECT_MS;
+    if (attempt_ms < 1000) attempt_ms = 1000;
+    ble_conn_params_t fast = ble_conn_setup_params();
     struct ble_gap_conn_params cp = {};
     cp.scan_itvl = share.itvl;
     cp.scan_window = share.window;
-    cp.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;
-    cp.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;
-    cp.latency = BLE_GAP_INITIAL_CONN_LATENCY;
-    cp.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    cp.itvl_min = fast.itvl_min;
+    cp.itvl_max = fast.itvl_max;
+    cp.latency = fast.latency;
+    cp.supervision_timeout = fast.timeout;
     cp.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
     cp.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
-    int rc = ble_gap_connect(own_addr_type, &a, CONNECT_MS, &cp, gap_event, nullptr);
+    int rc = ble_gap_connect(own_addr_type, &a, attempt_ms, &cp, gap_event, nullptr);
     if (rc) {
       Log_error("BLE keys: connect failed to start (%d)", rc);
       apply(ble_pair_failed(&pair, BLE_FAIL_TIMEOUT, millis()));
@@ -432,6 +467,11 @@ static void hogp_do(const hogp_act_t &a) {
     return;
   }
   case HOGP_DO_FIND_SERVICE: {
+    if (hogp.cache_stale) { // Service Changed or a failed subscribe: the kept handles go
+      kbd_store_cache_drop();
+      hogp.cache_stale = false;
+      Log_event("BLE kbd: kept handles of %s dropped, discovering again", pair.target.name);
+    }
     static const ble_uuid16_t hid = BLE_UUID16_INIT(HOGP_UUID_HID_SERVICE);
     rc = ble_gattc_disc_svc_by_uuid(conn, &hid.u, on_svc, nullptr);
     break;
@@ -449,7 +489,11 @@ static void hogp_do(const hogp_act_t &a) {
     hid_keys_init(&keys);
     connected = true;
     Log_event("BLE kbd: %s ready (%s protocol)", pair.target.name, hogp.boot ? "boot" : "report");
-    apply(ble_pair_connected(&pair));
+    apply(ble_pair_connected(&pair)); // a new bond: its identity address in pair.target now
+    if (!hogp.from_cache) {
+      static hogp_cache_t kept;
+      if (hogp_cache_fill(&hogp, pair.target.addr, &kept)) kbd_store_cache_save(&kept);
+    }
     screen_up = false;
     ble_screen_release(); // also after a reconnect that showed nothing: a no-op then
     keyboards_post_change();
@@ -491,11 +535,14 @@ static void handle(const msg_t &m) {
     if (m.status || listed) apply(ble_pair_found(&pair, &m.peer));
     break;
   }
-  case M_CONNECTED:
+  case M_CONNECTED: {
     conn = m.conn;
-    Log_event("BLE kbd: connected to %s, securing", pair.target.name);
-    hogp_do(hogp_start(&hogp, now));
+    static hogp_cache_t kept;
+    bool have = pair.bonded && kbd_store_cache_load(pair.target.addr, &kept);
+    Log_event("BLE kbd: connected to %s, securing%s", pair.target.name, have ? ", kept handles" : "");
+    hogp_do(hogp_start_cached(&hogp, now, have ? &kept : nullptr));
     break;
+  }
   case M_CONNECT_FAILED:
     // no answer (the keyboard asleep) is every CONNECT_MS: not logged
     if (m.status != BLE_HS_ETIMEOUT) Log_event("BLE kbd: connect failed, %d (%s)", m.status, hogp_reason_str(m.status));
@@ -558,10 +605,28 @@ static void handle(const msg_t &m) {
     if (ours) hogp_do(hogp_written(&hogp, m.status));
     break;
   case M_NOTIFY: {
+    if (ours && m.status) { // an indication: Service Changed unless on a HID value
+      hogp_do(hogp_indicated(&hogp, m.a, now));
+      break;
+    }
     uint8_t boot[HID_KEYS_REPORT];
     if (!ours || !hogp_report(&hogp, m.a, m.data, m.len, boot)) break;
     app_event_t ev[HID_KEYS_MAX_EVENTS];
     keyboards_post(ev, hid_keys_report(&keys, boot, sizeof(boot), ev));
+    break;
+  }
+  case M_PARAMS: {
+    if (!ours || m.len != sizeof(ble_conn_params_t)) break;
+    ble_conn_params_t r;
+    memcpy(&r, m.data, sizeof(r));
+    if (m.a == PARAMS_UPDATED) {
+      Log_event("BLE kbd: link now %u x1.25 ms, latency %u, timeout %u0 ms (status %d)", (unsigned)r.itvl_min,
+                (unsigned)r.latency, (unsigned)r.timeout, m.status);
+      break;
+    }
+    char line[128];
+    ble_conn_param_line(line, sizeof(line), m.a == PARAMS_L2CAP ? "L2CAP" : "LL", &r, (uint8_t)m.status);
+    Log_event("%s", line);
     break;
   }
   case M_TAP:
@@ -626,6 +691,10 @@ static bool radio_start(void) {
   ble_hs_cfg.sm_sc = 1;
   ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
   ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+  // The keyboard's ATT requests (MTU, device name, our services) are answered: GAP and GATT services. Again on
+  // every start: nimble_port_deinit frees them
+  ble_svc_gap_init();
+  ble_svc_gatt_init();
   ble_store_config_init();
   nimble_port_freertos_init(host_task);
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM); // Wi-Fi already up shares the radio (an error when it is off: ignored)
@@ -662,6 +731,7 @@ int ble_keyboard_enable(bool on) {
   // The rules first; their first actions wait in the task until NimBLE is in sync
   pending = ble_pair_enable(&pair, bonded ? &bond : nullptr);
   synced = scanning = false;
+  enabled_at = millis();
   if (!radio_start()) return APP_ENOMEM;
   running = true;
   if (xTaskCreatePinnedToCore(kbd_loop, "ble_kbd", 8192, nullptr, 3, &task, 0) != pdPASS) {

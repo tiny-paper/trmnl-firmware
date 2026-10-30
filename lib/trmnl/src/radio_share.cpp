@@ -4,6 +4,10 @@
 // a 30 ms window every 50 ms
 ble_share_scan_t ble_share_list(void) { return {0x50, 0x30}; }
 ble_share_scan_t ble_share_connect(void) { return {0x50, 0x30}; }
+ble_share_scan_t ble_share_connect_at(uint32_t since_ms) {
+  if (since_ms < BLE_SHARE_FULL_MS) return {0x50, 0x50};
+  return ble_share_connect();
+}
 
 unsigned ble_share_duty(ble_share_scan_t s) { return s.itvl ? (unsigned)s.window * 100u / s.itvl : 100u; }
 
