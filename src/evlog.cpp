@@ -72,13 +72,16 @@ static void write_out(bool force) {
   xSemaphoreGive(wmu);
 }
 
-// A failed allocation anywhere: noted without a lock here (any task, any state), logged by the flush task
-static volatile uint32_t oom_count, oom_size, oom_caps;
+// A failed allocation anywhere: noted without our lock here (any task, any state), logged by the flush task.
+// Internal RAM free and largest block at the failure: the heap's own calls, its lock is not held here
+static volatile uint32_t oom_count, oom_size, oom_caps, oom_int_free, oom_int_largest;
 
 static void on_alloc_failed(size_t size, uint32_t caps, const char *function) {
   (void)function;
   oom_size = (uint32_t)size;
   oom_caps = caps;
+  oom_int_free = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  oom_int_largest = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   oom_count = oom_count + 1;
 }
 
@@ -90,9 +93,12 @@ static void flusher(void *arg) {
     uint32_t n = oom_count;
     if (n != oom_seen) {
       // one text per caps and size: repeats count up (xN) instead of filling the log; caps first, the screen cuts
-      Log_info("Event log: out of memory, %lu allocations failed, last %lu bytes caps 0x%lx",
-               (unsigned long)(n - oom_seen), (unsigned long)oom_size, (unsigned long)oom_caps);
-      evlog_add("out of memory: caps 0x%lx, %lu bytes failed", (unsigned long)oom_caps, (unsigned long)oom_size);
+      Log_info("Event log: out of memory, %lu allocations failed, last %lu bytes caps 0x%lx, internal %lu free, "
+               "largest %lu", (unsigned long)(n - oom_seen), (unsigned long)oom_size, (unsigned long)oom_caps,
+               (unsigned long)oom_int_free, (unsigned long)oom_int_largest);
+      // at most 82 characters (every field at its widest), within EVLOG_TEXT_MAX (test/config/test_internal_ram.py)
+      evlog_add("out of memory: caps 0x%lx, %lu bytes failed, int %lu/%lu", (unsigned long)oom_caps,
+                (unsigned long)oom_size, (unsigned long)oom_int_free, (unsigned long)oom_int_largest);
       oom_seen = n;
     }
     write_out(false);
