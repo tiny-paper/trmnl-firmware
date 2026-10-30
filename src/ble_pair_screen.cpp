@@ -6,6 +6,7 @@
 #include <epd_driver.h>
 #include <esp_heap_caps.h>
 #include <fonts.h>
+#include <hints.h>
 #include <string.h>
 #include <trmnl_log.h>
 
@@ -71,7 +72,10 @@ static void draw(const ble_pair_t *p) {
       if (i == p->selected) bbep.drawRect(x - 30, y + i * 80 - 52, w - 2 * x + 60, 72, BBEP_BLACK);
       bbep.drawString(line, x, y + i * 80);
     }
-    bbep.drawString("Left / right: choose    Middle: pair    Hold: end the app", x, h - 120);
+    hints_draw("Previous", HINTS_ICON_NONE, 0, HINTS_OUTLINED);
+    hints_draw("Pair", HINTS_ICON_NONE, 1, HINTS_OUTLINED);
+    hints_draw("Next", HINTS_ICON_NONE, 2, HINTS_OUTLINED);
+    hints_draw_long_press("end the app", h - HINTS_MARGIN - 110);
     break;
   case BLE_PAIR_CONNECTING:
     snprintf(line, sizeof(line), "Connecting to %s...", p->target.name[0] ? p->target.name : "the keyboard");
@@ -91,6 +95,7 @@ static void draw(const ble_pair_t *p) {
   default:
     break;
   }
+  if (p->state != BLE_PAIR_LIST) hints_draw_long_press("cancel", h - HINTS_MARGIN);
 }
 
 void ble_screen_show(const ble_pair_t *p) {

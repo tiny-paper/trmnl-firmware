@@ -42,7 +42,7 @@ def test_install_via_wifi_shows_a_big_code_inside_the_panel(device, elfs):
     box = ink.getbbox()
     assert box, "blank screen"
     margin = 16
-    assert box[0] >= margin and box[1] >= margin and box[2] <= w - margin and box[3] <= h - margin, box
+    assert box[0] >= margin and box[1] >= margin and box[2] <= w - margin and box[3] <= h - 8, box  # TRMNL's own pill sits 12 px above the edge
     # the widest ink-free-band rows: the code is the tallest text line, at least 3x the old 18 px text
     rows = [any(ink.getpixel((x, y)) for x in range(0, w, 2)) for y in range(h)]
     tallest = run = 0
@@ -50,6 +50,22 @@ def test_install_via_wifi_shows_a_big_code_inside_the_panel(device, elfs):
         run = run + 1 if r else 0
         tallest = max(tallest, run)
     assert tallest >= 54, "tallest ink band %d px" % tallest
+    assert_hint_pill(img, 1)
+
+
+def assert_hint_pill(img, slot):
+    """TRMNL's hint pill (hints.h) in the bottom band of `slot`: an outlined rounded box, ink at both its ends and
+    a clear inside above and below the text (owner 2026-10-30: our screens use TRMNL's own touch bar hints)"""
+    w, h = img.size
+    cx = w * (2 * slot + 1) // 6
+    band = img.crop((cx - 300, h - 120, cx + 300, h - 10)).point(lambda v: 255 if v < 128 else 0)
+    box = band.getbbox()
+    assert box, "no hint pill in slot %d" % slot
+    pw = box[2] - box[0]
+    assert 200 <= pw <= 600, "pill width %d" % pw
+    mid = (box[1] + box[3]) // 2
+    # the outline: a dark run at the left and right ends of the middle row, thick like HINT_BORDER (3)
+    assert band.getpixel((box[0] + 1, mid)) and band.getpixel((box[2] - 2, mid)), "no outline ends"
 
 
 def test_install_via_wifi_ends_on_a_long_press_at_once(device, elfs):
@@ -162,3 +178,30 @@ def test_serial_lines_never_reach_an_app_as_keys(device, elfs):
     must_log(sim, r"hello: key down 'a'", t)
     must_log(sim, r"hello: key down code 256", t)  # the arrow up of the escape sequence
     assert not sim.wait(3, console=r"hello: key down '[TAPEVLOGNSUCHzqK ]'", since=t).get("ok"), sim.log_tail()
+
+
+def test_receive_over_usb_shows_the_tap_hint_pills(device, elfs):
+    sim = device({"/apps/hello.elf": elfs["hello"]})
+    asleep(sim)
+    sim.api("POST", "/turbo", {"on": False})
+    start = since(sim)
+    sim.touch("center")
+    must_log(sim, r"menu_show_screen end", start)
+    choose(sim, MAIN_MENU, "Apps...")
+    must_log(sim, r"menu_show_screen end", start)
+    choose(sim, apps_menu(["hello"]), "Receive over USB...")
+    must_log(sim, r"Apps: waiting for an upload on the USB serial port", start)
+    idle(sim)
+    import io
+    import os
+    from PIL import Image
+    png = sim.api("GET", "/screenshot")
+    shots = os.environ.get("INSTALL_SHOTS")
+    if shots:
+        os.makedirs(shots, exist_ok=True)
+        with open(os.path.join(shots, "receive-screen.png"), "wb") as f:
+            f.write(png)
+    img = Image.open(io.BytesIO(png)).convert("L")
+    for slot in (0, 1, 2):
+        assert_hint_pill(img, slot)
+    long_press(sim)

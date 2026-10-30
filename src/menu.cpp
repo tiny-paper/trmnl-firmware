@@ -507,9 +507,11 @@ static void receive_apps(void) {
   static const char *const body[] = {
       "Waiting for an app on the USB cable.",
       "On the computer: python3 apps/upload.py <port> <app>.elf",
-      "Any tap stops.",
   };
-  menu_view_t view = {labels, 1, 0, body, 3, menu_controls->hints, false};
+  static const menu_hint_t stop_hints[MENU_HINT_SLOTS] = {{"Tap: stop", MENU_HINT_ICON_NONE},
+                                                          {"Tap: stop", MENU_HINT_ICON_NONE},
+                                                          {"Tap: stop", MENU_HINT_ICON_NONE}};
+  menu_view_t view = {labels, 1, 0, body, 2, stop_hints, false};
   menu_show_screen(view, true);
   app_sleep_gate_screen("Receive over USB");
   apps_receive(receive_cancel);

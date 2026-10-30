@@ -27,5 +27,9 @@ int hints_slot_x(int slot);
 void hints_fill_triangle(int cx, int cy, int size, int dir, uint8_t color);
 // One hint: an up/down triangle if `icon`, then `label`, in `style`
 void hints_draw(const char *label, hints_icon_t icon, int slot, hints_style_t style);
+// The same on a row of its own: `baseline` is the label's baseline (hints_draw: HINTS_MARGIN above the bottom edge)
+void hints_draw_at(const char *label, hints_icon_t icon, int slot, hints_style_t style, int baseline);
+// The long press hint every firmware screen shows: "Long press: <what>" under the touch bar's middle
+void hints_draw_long_press(const char *what, int baseline);
 
 #endif

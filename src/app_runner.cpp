@@ -18,6 +18,7 @@
 #include <esp_heap_caps.h>
 #include <filesystem.h>
 #include <fonts.h>
+#include <hints.h>
 #include <globals.h>
 #include <preferences_persistence.h>
 #include <qrcodegen.h>
@@ -439,8 +440,8 @@ void apps_install_session(void) {
   int ty = qr_top + 60;
   ty += draw_big("Scan the code", tx, ty, 2, false, Inter_18) + 20;
   ty += draw_big("or type the number", tx, ty, 2, false, Inter_18) + 20;
-  ty += draw_big("on the page.", tx, ty, 2, false, Inter_18) + 60;
-  draw_big("Long press to stop.", tx, ty, 2, false, Inter_18);
+  draw_big("on the page.", tx, ty, 2, false, Inter_18);
+  hints_draw_long_press("stop", bbep.height() - HINTS_MARGIN);
   bbep.fullUpdate(CLEAR_FAST, false);
 
   app_sleep_gate_screen("Install via Wi-Fi");

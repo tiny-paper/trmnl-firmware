@@ -3,6 +3,7 @@
 #include <display_widgets.h>
 #include <epd_driver.h>
 #include <hints.h>
+#include <stdio.h>
 
 #include "fonts.h"
 
@@ -35,8 +36,17 @@ void hints_fill_triangle(int cx, int cy, int size, int dir, uint8_t color) {
 }
 
 void hints_draw(const char *label, hints_icon_t icon, int slot, hints_style_t style) {
+  hints_draw_at(label, icon, slot, style, bbep.height() - HINTS_MARGIN);
+}
+
+void hints_draw_long_press(const char *what, int baseline) {
+  char text[64];
+  snprintf(text, sizeof(text), "Long press: %s", what);
+  hints_draw_at(text, HINTS_ICON_NONE, 1, HINTS_OUTLINED, baseline);
+}
+
+void hints_draw_at(const char *label, hints_icon_t icon, int slot, hints_style_t style, int y) {
   if (!label) return;
-  const int y = bbep.height() - HINTS_MARGIN;
   BB_RECT rect, line;
   bbep.setFont(Inter_18);
   bbep.setCursor(0, y);

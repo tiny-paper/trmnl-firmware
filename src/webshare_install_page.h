@@ -18,6 +18,8 @@ h1{font-size:1.3rem}button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 
 <input id=pin inputmode=numeric pattern="[0-9]*" maxlength=6 autocomplete=off size=8> <button id=go>Open</button></div>
 <div id=main hidden>
 <div id=apps></div>
+<p>Touch bar:</p><div id=bar><button data-b=left>Left</button> <button data-b=middle>Middle</button>
+<button data-b=right>Right</button> <button data-b=long>Long press</button> <button data-b=stop>Stop server</button></div>
 <p>Add an app (.elf):</p><input id=up type=file accept=".elf" multiple>
 <p class=s>Every file is checked before it is kept. An app with the same name is kept as .elf.bak until the new one has
 started once; if it fails to start the old one comes back. From a computer:<br>
@@ -52,6 +54,10 @@ $('go').onclick=async()=>{
   const r=await api('/api/login',{method:'POST',body:'pin='+encodeURIComponent($('pin').value),
     headers:Object.assign({'Content-Type':'application/x-www-form-urlencoded'},H)});
   if(r.ok){say('');load()}else say(r.j.error||'Failed',true)};
+document.querySelectorAll('#bar button').forEach(b=>b.onclick=async()=>{
+  const r=await api('/api/touch',{method:'POST',body:'b='+b.dataset.b,
+    headers:Object.assign({'Content-Type':'application/x-www-form-urlencoded'},H)});
+  say(r.ok?(b.dataset.b=='stop'||b.dataset.b=='long'?'Sent. The X stops this page.':'Sent.'):(r.j.error||'Failed'),!r.ok)});
 $('pin').onkeydown=e=>{if(e.key=='Enter')$('go').click()};
 $('up').onchange=async e=>{
   const out=[];

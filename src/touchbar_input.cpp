@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <iqs323_task.h>
+#include <touch_inject.h>
 #include <touchbar_input.h>
 #include <trmnl_log.h>
 
@@ -31,6 +32,7 @@ void touchbar_input_begin(const char *consumer) {
   consumer_name = consumer;
   iqs323_task_set_streaming_mode(true); // fresh touch data while awake; also republishes the status (iqs323_task.h)
   iqs323_task_take_touch_starts();      // the touch that led here
+  touch_inject_clear();                 // web presses from an earlier screen
   touchbar_snapshot_t snap;
   iqs323_task_read_snapshot(&snap);
   const bool down[3] = {snap.ch0_touch, snap.ch1_touch, snap.ch2_touch};
@@ -75,6 +77,10 @@ int touchbar_input_poll(touch_event_t *out) {
     if (!t.long_press) add(out, &n, ch, touch_gesture_t::TAP, now - t.since);
     t.down = false;
   }
+  // presses from the Install via Wi-Fi page: the same events as the touch bar's (touch_inject.h)
+  touch_inject_ev_t web[TOUCH_INJECT_MAX];
+  int w = touch_inject_take(web, TOUCH_INJECT_MAX);
+  for (int i = 0; i < w; i++) add(out, &n, web[i].channel, (touch_gesture_t)web[i].gesture, 0);
   return n;
 }
 
