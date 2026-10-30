@@ -51,6 +51,7 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | bond | NimBLE's keys in NVS (`nimble_bond`), the keyboard's name and identity address in NVS `ble_kbd`; one keyboard: older bonds are deleted |
 | bonded, app enables BLE (also after sleep or a restart) | connect directly, no screen; nothing answers in 8 s: again after 2 s, until the app ends |
 | link lost while typing (sleep, range, Easy-Switch to another channel) | KEY_UP for keys held, `APP_EVENT_KEYBOARD`, connect again at once |
+| bonded keyboard reconnects and asks for security itself | NimBLE encrypts with the stored key; our own start then gives EALREADY and waits for that encryption (`hogp_secure_started`); log `BLE kbd: ...` on connect, disconnect (reason code and words) and ready |
 | keyboard lost the bond (paired elsewhere): key missing, or it asks to pair again | our bond deleted, the list again with "The keyboard forgot this X: pair it again" |
 | wrong passkey / refused | the list again, "Pairing failed: try again" |
 | passkey not typed in 40 s (SMP gives up at 30 s) | the list again, "The passkey was not typed in time" |

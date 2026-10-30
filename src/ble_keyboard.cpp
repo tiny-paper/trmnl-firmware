@@ -44,6 +44,7 @@
 #endif
 
 // ble_hogp.h names NimBLE's status numbers without its headers
+static_assert(HOGP_HS_EALREADY == BLE_HS_EALREADY, "NimBLE status");
 static_assert(HOGP_HS_ETIMEOUT == BLE_HS_ETIMEOUT, "NimBLE status");
 static_assert(HOGP_HS_ATT_BASE == BLE_HS_ERR_ATT_BASE, "NimBLE status");
 static_assert(HOGP_HS_HCI_BASE == BLE_HS_ERR_HCI_BASE, "NimBLE status");
@@ -406,7 +407,15 @@ static void hogp_do(const hogp_act_t &a) {
   int rc = 0;
   switch (a.what) {
   case HOGP_DO_NONE: return;
-  case HOGP_DO_SECURE: rc = ble_gap_security_initiate(conn); break;
+  case HOGP_DO_SECURE: {
+    // A reconnecting keyboard often asks for security first and NimBLE starts it: EALREADY is no failure
+    rc = ble_gap_security_initiate(conn);
+    struct ble_gap_conn_desc d;
+    bool encrypted = ble_gap_conn_find(conn, &d) == 0 && d.sec_state.encrypted;
+    if (rc) Log_info("BLE kbd: security start gave %d%s", rc, rc == BLE_HS_EALREADY ? " (the keyboard started it)" : "");
+    hogp_do(hogp_secure_started(&hogp, rc, encrypted, millis()));
+    return;
+  }
   case HOGP_DO_FIND_SERVICE: {
     static const ble_uuid16_t hid = BLE_UUID16_INIT(HOGP_UUID_HID_SERVICE);
     rc = ble_gattc_disc_svc_by_uuid(conn, &hid.u, on_svc, nullptr);
@@ -424,7 +433,7 @@ static void hogp_do(const hogp_act_t &a) {
   case HOGP_DO_READY:
     hid_keys_init(&keys);
     connected = true;
-    Log_info("BLE keys: %s ready (%s protocol)", pair.target.name, hogp.boot ? "boot" : "report");
+    Log_info("BLE kbd: %s ready (%s protocol)", pair.target.name, hogp.boot ? "boot" : "report");
     apply(ble_pair_connected(&pair));
     screen_up = false;
     ble_screen_release(); // also after a reconnect that showed nothing: a no-op then
@@ -469,14 +478,19 @@ static void handle(const msg_t &m) {
   }
   case M_CONNECTED:
     conn = m.conn;
+    Log_info("BLE kbd: connected to %s, securing", pair.target.name);
     hogp_do(hogp_start(&hogp, now));
     break;
   case M_CONNECT_FAILED:
+    // no answer (the keyboard asleep) is every CONNECT_MS: not logged
+    if (m.status != BLE_HS_ETIMEOUT) Log_info("BLE kbd: connect failed, %d (%s)", m.status, hogp_reason_str(m.status));
     apply(ble_pair_failed(&pair, BLE_FAIL_TIMEOUT, now));
     break;
   case M_DISCONNECTED:
     if (m.conn != conn) break;
     conn = BLE_HS_CONN_HANDLE_NONE;
+    Log_info("BLE kbd: %s disconnected, reason 0x%x (%s)%s", pair.target.name, (unsigned)m.status,
+             hogp_reason_str(m.status), pair.bonded ? ", connecting again" : "");
     if (hogp.state == HOGP_SECURING || hogp.state == HOGP_PASSKEY) { // dropped while securing: why
       apply(ble_pair_failed(&pair, hogp_enc_fail(m.status, hogp.state == HOGP_PASSKEY), now));
     } else {

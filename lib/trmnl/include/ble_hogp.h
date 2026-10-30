@@ -27,6 +27,7 @@
 #define HOGP_UUID_REPORT_REF   0x2908
 
 // NimBLE's status numbers (host/ble_hs.h; src/ble_keyboard.cpp checks them with static_assert)
+#define HOGP_HS_EALREADY   2
 #define HOGP_HS_ETIMEOUT   13
 #define HOGP_HS_ATT_BASE   0x100
 #define HOGP_HS_HCI_BASE   0x200
@@ -92,6 +93,11 @@ typedef struct {
 
 // Connected (the link is up, not yet encrypted)
 hogp_act_t hogp_start(hogp_t *h, uint32_t now_ms);
+// What starting security (HOGP_DO_SECURE) gave: `rc` from ble_gap_security_initiate, `encrypted` the link's state.
+// A bonded keyboard that reconnects sends its own security request at once, and NimBLE starts encryption with the
+// stored key itself: our start then gives EALREADY. That is no failure: the encryption change still comes
+// (before this, the link was dropped every time and the keyboard never came back). Already encrypted: go on.
+hogp_act_t hogp_secure_started(hogp_t *h, int rc, bool encrypted, uint32_t now_ms);
 // The keyboard asks for a passkey to be shown: longer to wait
 void hogp_passkey(hogp_t *h, uint32_t now_ms);
 // NimBLE's encryption change; status 0 encrypted
@@ -115,3 +121,6 @@ bool hogp_report(const hogp_t *h, uint16_t attr_handle, const uint8_t *data, siz
 
 // Why an encryption change failed
 ble_fail_t hogp_enc_fail(int status, bool passkey_shown);
+
+// A disconnect or failed connect reason (NimBLE status) in words, for the log
+const char *hogp_reason_str(int status);

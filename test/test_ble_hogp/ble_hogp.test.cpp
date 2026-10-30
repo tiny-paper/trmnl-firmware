@@ -219,6 +219,84 @@ void test_pairing_failure_and_passkey_timeout_back_to_the_list() {
   TEST_ASSERT_EQUAL(BLE_PAIR_LIST, p.state);
 }
 
+// From encrypted to typing, report protocol (the map and references of discover(true, true))
+static void discover_to_ready(void) {
+  discover(true, true);
+  hogp_read_data(&h, kbd_map, sizeof(kbd_map));
+  hogp_read_done(&h, 0);
+  const uint8_t ref_in[2] = {1, 1}, ref_out[2] = {1, 2};
+  hogp_read_data(&h, ref_in, 2);
+  hogp_read_done(&h, 0);
+  hogp_read_data(&h, ref_out, 2);
+  hogp_read_done(&h, 0);
+  hogp_act_t a = hogp_written(&h, 0); // protocol mode written
+  TEST_ASSERT_EQUAL(HOGP_DO_WRITE, a.what); // notifications on again
+  TEST_ASSERT_EQUAL_HEX16(0x16, a.handle);
+  TEST_ASSERT_EQUAL(HOGP_DO_READY, hogp_written(&h, 0).what);
+}
+
+// A bonded keyboard that reconnects asks for security itself; NimBLE then encrypts with the stored key and our
+// own start gives EALREADY (device: keys stopped after the keyboard's first sleep, the link dropped every time)
+void test_security_already_started_by_the_keyboard_waits_for_encryption() {
+  hogp_start(&h, 0);
+  TEST_ASSERT_EQUAL(HOGP_DO_NONE, hogp_secure_started(&h, HOGP_HS_EALREADY, false, 1).what);
+  TEST_ASSERT_EQUAL(HOGP_SECURING, h.state);
+  TEST_ASSERT_EQUAL(HOGP_DO_FIND_SERVICE, hogp_encrypted(&h, 0, 50).what);
+  hogp_start(&h, 0);
+  TEST_ASSERT_EQUAL(HOGP_DO_NONE, hogp_secure_started(&h, 0, false, 1).what);
+  TEST_ASSERT_EQUAL(HOGP_SECURING, h.state);
+}
+
+void test_security_on_a_link_already_encrypted_goes_on() {
+  hogp_start(&h, 0);
+  TEST_ASSERT_EQUAL(HOGP_DO_FIND_SERVICE, hogp_secure_started(&h, HOGP_HS_EALREADY, true, 1).what);
+  TEST_ASSERT_EQUAL(HOGP_DO_NONE, hogp_encrypted(&h, 0, 2).what); // its own change event later: nothing twice
+}
+
+void test_security_that_cannot_start_fails() {
+  hogp_start(&h, 0);
+  hogp_act_t a = hogp_secure_started(&h, 7 /* ENOTCONN */, false, 1);
+  TEST_ASSERT_EQUAL(HOGP_DO_FAIL, a.what);
+  TEST_ASSERT_EQUAL(BLE_FAIL_TIMEOUT, a.why);
+  // and a bonded keyboard is tried again, never deleted, for a link that went
+  ble_pair_t p;
+  ble_pair_peer_t k = {};
+  ble_pair_enable(&p, &k);
+  TEST_ASSERT_EQUAL(0u, ble_pair_failed(&p, a.why, 1) & BLE_ACT_DELETE_BOND);
+  TEST_ASSERT_EQUAL(BLE_PAIR_WAIT, p.state);
+}
+
+// Typing, the keyboard sleeps (link lost), a key wakes it: it reconnects with its own security request and the
+// keys flow again
+void test_reconnect_after_disconnect_resubscribes_and_keys_flow_again() {
+  ble_pair_t p;
+  ble_pair_peer_t k = {};
+  k.addr[6] = 7;
+  TEST_ASSERT_BITS_HIGH(BLE_ACT_CONNECT, ble_pair_enable(&p, &k));
+  const uint8_t r[8] = {0, 0, 0x04, 0, 0, 0, 0, 0};
+  uint8_t boot[8];
+  for (int round = 0; round < 3; round++) {
+    hogp_start(&h, 0);
+    TEST_ASSERT_EQUAL(HOGP_DO_NONE, hogp_secure_started(&h, HOGP_HS_EALREADY, false, 1).what);
+    TEST_ASSERT_EQUAL(HOGP_DO_FIND_SERVICE, hogp_encrypted(&h, 0, 100).what);
+    discover_to_ready();
+    ble_pair_connected(&p);
+    TEST_ASSERT_EQUAL(BLE_PAIR_CONNECTED, p.state);
+    TEST_ASSERT_TRUE(hogp_report(&h, 0x15, r, sizeof(r), boot));
+    uint32_t act = ble_pair_disconnected(&p, 60000); // the keyboard's idle sleep
+    TEST_ASSERT_BITS_HIGH(BLE_ACT_RELEASE | BLE_ACT_CONNECT, act); // keys up, the app told, connect again
+    TEST_ASSERT_TRUE(p.bonded);
+    h.state = HOGP_IDLE; // what the caller does on a disconnect
+    TEST_ASSERT_FALSE(hogp_report(&h, 0x15, r, sizeof(r), boot));
+  }
+}
+
+void test_reason_words() {
+  TEST_ASSERT_EQUAL_STRING("supervision timeout (signal lost)", hogp_reason_str(HOGP_HS_HCI_BASE + 0x08));
+  TEST_ASSERT_EQUAL_STRING("keyboard ended it (sleep, switch)", hogp_reason_str(HOGP_HS_HCI_BASE + 0x13));
+  TEST_ASSERT_EQUAL_STRING("other", hogp_reason_str(12345));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_nothing_is_asked_before_the_link_is_encrypted);
@@ -230,5 +308,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_subscribe_refused_for_security);
   RUN_TEST(test_bond_deleted_on_the_keyboard_side);
   RUN_TEST(test_pairing_failure_and_passkey_timeout_back_to_the_list);
+  RUN_TEST(test_security_already_started_by_the_keyboard_waits_for_encryption);
+  RUN_TEST(test_security_on_a_link_already_encrypted_goes_on);
+  RUN_TEST(test_security_that_cannot_start_fails);
+  RUN_TEST(test_reconnect_after_disconnect_resubscribes_and_keys_flow_again);
+  RUN_TEST(test_reason_words);
   return UNITY_END();
 }

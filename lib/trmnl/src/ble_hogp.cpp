@@ -51,6 +51,13 @@ hogp_act_t hogp_start(hogp_t *h, uint32_t now) {
   return act(HOGP_DO_SECURE);
 }
 
+hogp_act_t hogp_secure_started(hogp_t *h, int rc, bool encrypted, uint32_t now) {
+  if (h->state != HOGP_SECURING) return act(HOGP_DO_NONE);
+  if (encrypted) return hogp_encrypted(h, 0, now);
+  if (rc == 0 || rc == HOGP_HS_EALREADY) return act(HOGP_DO_NONE); // the encryption change follows
+  return fail(h, hogp_enc_fail(rc, false));
+}
+
 void hogp_passkey(hogp_t *h, uint32_t now) {
   if (h->state != HOGP_SECURING && h->state != HOGP_PASSKEY) return;
   h->state = HOGP_PASSKEY;
@@ -235,4 +242,21 @@ bool hogp_report(const hogp_t *h, uint16_t attr, const uint8_t *data, size_t len
     return true;
   }
   return hid_map_to_boot(&h->kbd, data, len, boot);
+}
+
+const char *hogp_reason_str(int status) {
+  switch (status) {
+  case 0: return "ok";
+  case HOGP_HS_ETIMEOUT: return "no answer";
+  case HOGP_HS_HCI_BASE + 0x05: return "authentication failure";
+  case HOGP_HS_HCI_BASE + 0x06: return "key missing";
+  case HOGP_HS_HCI_BASE + 0x08: return "supervision timeout (signal lost)";
+  case HOGP_HS_HCI_BASE + 0x13: return "keyboard ended it (sleep, switch)";
+  case HOGP_HS_HCI_BASE + 0x16: return "ended by the X";
+  case HOGP_HS_HCI_BASE + 0x22: return "link layer timeout";
+  case HOGP_HS_HCI_BASE + 0x3B: return "unacceptable connection parameters";
+  case HOGP_HS_HCI_BASE + 0x3D: return "MIC failure";
+  case HOGP_HS_HCI_BASE + 0x3E: return "connection failed to be established";
+  }
+  return "other";
 }
