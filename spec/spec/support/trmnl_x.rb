@@ -76,11 +76,22 @@ module TrmnlX
     c = s.status["console_total"]
     s.touch("center", ms: 150)
     s.wait(console: /menu_show_screen end/, since: c, timeout: 30)
-    menu_tap(s, "right", /Next Screen -> Previous Screen/)
-    menu_tap(s, "right", /Previous Screen -> Touchbar Tutorial/)
-    menu_tap(s, "right", /Touchbar Tutorial -> Special/)
-    menu_tap(s, "right", /Special\.\.\. -> Settings/)
+    menu_right_to(s, "Settings...")
     menu_tap(s, "center", /chose Settings/, screen: true)
+  end
+
+  # Move the menu arrow right until it is on `label`, an item further along the menu on the
+  # screen, following the firmware's "Menu: <from> -> <to>" lines: the items in between don't
+  # matter (a build may add some to the main menu, as an Apps... item).
+  def menu_right_to(s, label, max: 8)
+    max.times do
+      c = s.status["console_total"]
+      s.touch("right", ms: 150)
+      to = s.wait(console: /Menu: .* -> /, since: c, timeout: 15)["line"]["text"].split(" -> ").last.strip
+      s.wait(display_idle: true, settle_ms: 100, timeout: 15)
+      return if to == label
+    end
+    raise "the menu arrow is not on #{label} after #{max} taps"
   end
 
   # Open Settings..., then Reset Wi-Fi..., leaving its confirmation (Confirm Reset Wi-Fi, Back)

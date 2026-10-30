@@ -52,9 +52,7 @@ RSpec.describe "TRMNL X touch bar: tap mode", env: "TRMNL_X" do
         c = s.status["console_total"]
         s.touch("center", ms: 150)
         s.wait(console: /menu_show_screen end/, since: c, timeout: 30)
-        TrmnlX.menu_tap(s, "right", /Next Screen -> Previous Screen/)
-        TrmnlX.menu_tap(s, "right", /Previous Screen -> Touchbar Tutorial/)
-        TrmnlX.menu_tap(s, "right", /Touchbar Tutorial -> Special/)
+        TrmnlX.menu_right_to(s, "Special...")
         TrmnlX.menu_tap(s, "center", /chose Special/, screen: true)
         TrmnlX.menu_tap(s, "right", /Identify -> Restart Playlist/)
         TrmnlX.menu_tap(s, "right", /Restart Playlist -> Send to Me/)
