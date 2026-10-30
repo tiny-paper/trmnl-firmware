@@ -22,4 +22,5 @@ typedef struct ws_fs {
   int (*mkdir)(void *ctx, const char *path);
   int (*list)(void *ctx, const char *dir, ws_list_cb_t cb, void *cb_ctx);
   uint64_t (*free_bytes)(void *ctx);
+  int64_t (*mtime)(void *ctx, const char *path); // Unix seconds, 0 unknown; may be nullptr
 } ws_fs_t;

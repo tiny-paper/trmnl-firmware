@@ -17,6 +17,7 @@ const char *ws_result_str(ws_result_t r) {
   case WS_E_NOT_FOUND: return "no such file";
   case WS_E_EXISTS: return "name already taken";
   case WS_E_KEEP_FAILED: return "name taken and too long to keep both";
+  case WS_E_REFUSED: return "refused";
   }
   return "error";
 }
@@ -87,11 +88,10 @@ void ws_store_cleanup(const ws_fs_t *fs) {
   remove_tmp_in(fs, "settings/fonts");
 }
 
-ws_result_t ws_upload_begin(ws_upload_t *u, const ws_fs_t *fs, const char *path, uint32_t size) {
+ws_result_t ws_upload_begin_path(ws_upload_t *u, const ws_fs_t *fs, const char *path, uint32_t size,
+                                 uint32_t max_size) {
   if (u->file) return WS_E_BUSY;
-  ws_kind_t kind = ws_classify(path);
-  if (kind == WS_OTHER) return WS_E_NAME;
-  if (size > (kind == WS_DOC ? WS_DOC_MAX : WS_FONT_MAX)) return WS_E_TOO_BIG;
+  if (size > max_size) return WS_E_TOO_BIG;
   uint64_t free_bytes = fs->free_bytes(fs->ctx);
   if (free_bytes < (uint64_t)size + WS_FREE_MARGIN) return WS_E_NO_SPACE;
   memset(u, 0, sizeof(*u));
@@ -105,6 +105,13 @@ ws_result_t ws_upload_begin(ws_upload_t *u, const ws_fs_t *fs, const char *path,
   if (!u->file) return WS_E_IO;
   u->expected = size;
   return WS_OK;
+}
+
+ws_result_t ws_upload_begin(ws_upload_t *u, const ws_fs_t *fs, const char *path, uint32_t size) {
+  if (u->file) return WS_E_BUSY;
+  ws_kind_t kind = ws_classify(path);
+  if (kind == WS_OTHER) return WS_E_NAME;
+  return ws_upload_begin_path(u, fs, path, size, kind == WS_DOC ? WS_DOC_MAX : WS_FONT_MAX);
 }
 
 void ws_upload_abort(ws_upload_t *u) {
@@ -142,22 +149,29 @@ static bool file_crc(const ws_fs_t *fs, const char *path, uint32_t *crc) {
   return n == 0;
 }
 
-ws_result_t ws_upload_end(ws_upload_t *u, ws_put_t *how, char *final_path) {
-  const ws_fs_t *fs = u->fs;
+ws_result_t ws_upload_close(ws_upload_t *u, bool exact) {
   if (!u->file) return WS_E_IO;
+  if (!exact) u->expected = u->got;
   if (u->got != u->expected) {
     ws_upload_abort(u);
     return WS_E_SHORT;
   }
   // Buffered bytes reach the disk at close: a failing close, or a file shorter than what was written (LittleFS
   // reports a full disk only there, and the Arduino wrapper drops the error), means the upload is lost
-  int closed = fs->close(fs->ctx, u->file);
+  int closed = u->fs->close(u->fs->ctx, u->file);
   u->file = nullptr;
   uint32_t on_disk = 0;
-  if (closed < 0 || !exists(fs, u->tmp, &on_disk) || on_disk != u->got) {
+  if (closed < 0 || !exists(u->fs, u->tmp, &on_disk) || on_disk != u->got) {
     ws_upload_abort(u);
     return WS_E_NO_SPACE;
   }
+  return WS_OK;
+}
+
+ws_result_t ws_upload_end(ws_upload_t *u, ws_put_t *how, char *final_path) {
+  const ws_fs_t *fs = u->fs;
+  ws_result_t closed = ws_upload_close(u, true);
+  if (closed != WS_OK) return closed;
   char target[WS_PATH_MAX + 1];
   strcpy(target, u->path);
   *how = WS_PUT_NEW;

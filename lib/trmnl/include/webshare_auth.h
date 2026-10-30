@@ -53,5 +53,12 @@ uint32_t ws_auth_lock_left(const ws_auth_t *a, uint32_t now);
 // Is this the token of a live session?
 bool ws_auth_session_ok(const ws_auth_t *a, const char *token);
 
+// One request to a page that curl can call without a cookie (POST /apps?t=<token> or ?code=<6 digits>): allowed with a
+// live session cookie, else with the one-time token (used up), else with the code (as often as needed). Every other
+// case is refused, and a wrong token or code counts like any wrong code (lock, dead). `session` is the cookie value,
+// the others the query parameters; each may be nullptr or empty.
+bool ws_auth_request(ws_auth_t *a, const char *session, const char *token, const char *code, uint32_t now,
+                     const uint32_t random[2], char *session_out);
+
 // Idle timer: `last` is the millis of the last request (or the start)
 bool ws_idle_expired(uint32_t last, uint32_t now);

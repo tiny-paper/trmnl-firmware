@@ -22,6 +22,7 @@ typedef enum {
   WS_E_NOT_FOUND,
   WS_E_EXISTS, // rename target exists
   WS_E_KEEP_FAILED, // the name is taken and no " (web N)" name fits: refused, nothing written
+  WS_E_REFUSED, // an app the ELF checker refused (the reason is given separately)
 } ws_result_t;
 
 typedef enum {
@@ -46,6 +47,11 @@ void ws_store_cleanup(const ws_fs_t *fs);
 
 // Starts an upload of `size` bytes to `path`. Creates the folders. Checks name, size and free space first.
 ws_result_t ws_upload_begin(ws_upload_t *u, const ws_fs_t *fs, const char *path, uint32_t size);
+// The same for a path the caller has checked itself (apps/<name>.elf): only `max_size` and the free space apply
+ws_result_t ws_upload_begin_path(ws_upload_t *u, const ws_fs_t *fs, const char *path, uint32_t size, uint32_t max_size);
+// Closes the temporary file and checks what reached the disk: WS_OK, or the upload is dropped (WS_E_SHORT: not the
+// announced `expected` bytes, unless `exact` is false, then whatever came; WS_E_NO_SPACE: lost at close)
+ws_result_t ws_upload_close(ws_upload_t *u, bool exact);
 ws_result_t ws_upload_chunk(ws_upload_t *u, const void *data, size_t len); // on an error the upload is already aborted
 // Ends it: checks the byte count, then stores. `final_path` (WS_PATH_MAX + 1) is where the file went.
 ws_result_t ws_upload_end(ws_upload_t *u, ws_put_t *how, char *final_path);

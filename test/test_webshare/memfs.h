@@ -52,6 +52,7 @@ static inline MemFs *self(void *ctx) { return (MemFs *)ctx; }
 
 inline MemFs::MemFs() {
   fs.ctx = this;
+  fs.mtime = nullptr;
   fs.stat = [](void *c, const char *p, uint32_t *size, bool *dir) -> int {
     MemFs *m = self(c);
     auto it = m->nodes.find(p);

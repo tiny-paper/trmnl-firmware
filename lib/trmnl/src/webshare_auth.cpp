@@ -78,3 +78,12 @@ bool ws_auth_session_ok(const ws_auth_t *a, const char *token) {
 }
 
 bool ws_idle_expired(uint32_t last, uint32_t now) { return (uint32_t)(now - last) >= WS_IDLE_MS; }
+
+bool ws_auth_request(ws_auth_t *a, const char *session, const char *token, const char *code, uint32_t now,
+                     const uint32_t random[2], char *session_out) {
+  if (session_out) session_out[0] = '\0';
+  if (session && session[0] && ws_auth_session_ok(a, session)) return true;
+  if (token && token[0]) return ws_auth_token_login(a, token, now, random, session_out) == WS_AUTH_OK;
+  if (code && code[0]) return ws_auth_login(a, code, now, random, session_out) == WS_AUTH_OK;
+  return false;
+}
