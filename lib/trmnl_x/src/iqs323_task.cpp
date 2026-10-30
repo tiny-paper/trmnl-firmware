@@ -508,6 +508,7 @@ static void iqs323_task_main(void *pvParameters)
                     // Check for unexpected reset
                     if (iqs323.checkReset()) {
                         Serial.println("IQS323 Task: Unexpected reset detected");
+                        iqs323.new_data_available = false; // not data: the reinit must not take it as its own
                         xSemaphoreGive(iqs323_mutex);
                         xEventGroupSetBits(iqs323_event_group, IQS323_EVT_REINIT_REQUEST);
                         continue;
@@ -516,6 +517,7 @@ static void iqs323_task_main(void *pvParameters)
                     // Check for I2C lockup
                     if (iqs323.check_i2c_lockup()) {
                         Serial.println("IQS323 Task: I2C lockup detected");
+                        iqs323.new_data_available = false; // not data: the reinit must not take it as its own
                         xSemaphoreGive(iqs323_mutex);
                         xEventGroupSetBits(iqs323_event_group, IQS323_EVT_REINIT_REQUEST);
                         continue;
@@ -618,6 +620,11 @@ static bool iqs323_do_init(bool use_wake_stub)
         Serial.println("IQS323 Task: Requesting SW reset");
         iqs323.SW_Reset(true);  // STOP
         vTaskDelay(pdMS_TO_TICKS(100));
+
+        // The flag may still be set by the read that saw the reset: the loop below would take it as "init done"
+        // after the first step, before the reset is acknowledged, and the next read sees the reset again (device
+        // log, 68248ca: "Unexpected reset detected" / "Reinit successful" several times a second, touch dead)
+        iqs323.new_data_available = false;
 
         // Run initialization state machine with timeout
         uint32_t start_time = millis();

@@ -97,3 +97,21 @@ def test_a_serial_command_clears_the_resume(device, elfs):
     assert count_logs(sim, r"Apps: resuming") == 0
     assert sim.prefs().get("app_resume") == "0"
 
+
+def test_a_touch_bar_reset_while_an_app_runs_is_recovered(device, elfs):
+    """Device log, 68248ca with the writer: after one IQS323 reset the task re-initialised it several times a second
+    for good ("Unexpected reset detected" / "Reinit successful" / "INIT_VERIFY_PRODUCT"), so no touch arrived and the
+    app could not be left. The stale "new data" flag ended each init after its first step, before the reset was
+    acknowledged."""
+    sim = device({"/apps/hello.elf": elfs["hello"]})
+    start = start_app(sim, ["hello"], "hello")
+    must_log(sim, r"Apps: .* running", start)
+    t = since(sim)
+    sim.api("POST", "/faults", {"touch_bar": "reset"})
+    must_log(sim, r"IQS323 Task: Unexpected reset detected", t)
+    must_log(sim, r"IQS323_INIT_DONE", t)
+    sim.wait(3, console=r"never", since=t)
+    assert count_logs(sim, r"IQS323 Task: Unexpected reset detected") <= 2, "reinit loop"
+    t = since(sim)
+    long_press(sim)
+    must_log(sim, r"Apps: hello ended with 0", t)
