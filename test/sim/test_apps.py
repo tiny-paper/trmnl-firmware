@@ -34,23 +34,30 @@ def idle(sim):
     sim.wait(30, display_idle=True, settle_ms=300)
 
 
+def tap_until(sim, zone, regex):
+    """Taps `zone` until `regex` is logged: the sim's touch bar sometimes drops a tap right after a menu update.
+    A tap that only shows late must not be repeated (a second right tap moves one item too far): before tapping
+    again, wait for the panel to be idle and give the first tap that long again."""
+    start = since(sim)
+    for _ in range(3):
+        idle(sim)
+        sim.touch(zone)
+        if sim.wait_log(regex, since=start, timeout=5):
+            return
+        idle(sim)
+        if sim.wait_log(regex, since=start, timeout=5):  # 10 s in all: the menu closes after 15 s
+            return
+
+
 def choose(sim, labels, label):
     """On a menu screen showing `labels`, arrow on the first: moves down to `label` and selects it"""
     for i in range(labels.index(label)):
         move = r"Menu: %s -> %s" % (re.escape(labels[i]), re.escape(labels[i + 1]))
         start = since(sim)
-        for _ in range(3):  # the sim's touch bar sometimes drops a tap right after a menu update
-            idle(sim)
-            sim.touch("right")
-            if sim.wait_log(r"Menu: ", since=start, timeout=5):
-                break
+        tap_until(sim, "right", r"Menu: ")
         must_log(sim, move, start, 5)
     start = since(sim)
-    for _ in range(3):
-        idle(sim)
-        sim.touch("center")
-        if sim.wait_log(r"Menu: chose", since=start, timeout=5):
-            break
+    tap_until(sim, "center", r"Menu: chose")
     must_log(sim, r"Menu: chose %s" % re.escape(label), start, 5)
 
 

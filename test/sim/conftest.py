@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 
 import pytest
@@ -23,16 +24,35 @@ import simx  # noqa: E402
 BUILD = os.path.join(ROOT, ".pio", "build", "TRMNL_X")
 
 
+# The build, copied once per session: `pio test` empties .pio/build when the project changed, and a sim run that
+# read the build in place lost it halfway (2026-10-30: 12 tests failed with no image)
+FIRMWARE = {}
+
+
 def pytest_sessionstart(session):
     if not os.path.exists(simx.SIM_BIN):
         pytest.exit("missing %s: cargo build --release in %s" % (simx.SIM_BIN, simx.SIM_DIR), 2)
-    if not merged_image():
+    found = [p for p in glob.glob(os.path.join(BUILD, "FW*-TRMNL_X.bin")) if not p.endswith("-ota.bin")]
+    elf = os.path.join(BUILD, "firmware.elf")
+    if not found or not os.path.exists(elf):
         pytest.exit("missing the merged image: pio run -e TRMNL_X", 2)
+    keep = tempfile.mkdtemp(prefix="apps-sim-fw-")
+    FIRMWARE["image"] = shutil.copy(found[0], keep)
+    FIRMWARE["elf"] = shutil.copy(elf, keep)
+    FIRMWARE["dir"] = keep
+
+
+def pytest_sessionfinish(session):
+    if FIRMWARE.get("dir"):
+        shutil.rmtree(FIRMWARE["dir"], ignore_errors=True)
 
 
 def merged_image():
-    found = [p for p in glob.glob(os.path.join(BUILD, "FW*-TRMNL_X.bin")) if not p.endswith("-ota.bin")]
-    return found[0] if found else None
+    return FIRMWARE["image"]
+
+
+def firmware_elf():
+    return FIRMWARE["elf"]
 
 
 @pytest.fixture(scope="session")
@@ -62,8 +82,7 @@ def base_flash(tmp, mock_port):
     if keep and os.path.exists(keep):
         return keep
     flash = keep or os.path.join(tmp, "base-flash.bin")
-    elf = os.path.join(BUILD, "firmware.elf")
-    sim = simx.Sim(merged_image(), elf, flash, tmp, mock_port, erase=True)
+    sim = simx.Sim(merged_image(), firmware_elf(), flash, tmp, mock_port, erase=True)
     try:
         # A fresh X flashes its modem, then waits to be unplugged and docked again (shipment mode)
         assert sim.wait_log(r"Waiting for USB plug-off", timeout=240), sim.log_tail()
@@ -95,7 +114,7 @@ def device(tmp, base_flash, mock_port, request):
         flashfs.with_files(merged_image(), image, files)
         flash = os.path.join(tmp, "%s-flash.bin" % name)
         shutil.copyfile(base_flash, flash)
-        sim = simx.Sim(image, os.path.join(BUILD, "firmware.elf"), flash, tmp, mock_port)
+        sim = simx.Sim(image, firmware_elf(), flash, tmp, mock_port)
         started.append(sim)
         return sim
 
