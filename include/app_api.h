@@ -200,6 +200,37 @@ typedef struct {
   uint16_t left_alone; // other files on the drive
 } app_drive_result_t;
 
+// ---- Wi-Fi page (API 2) ----
+
+// A page on the X's own Wi-Fi network "Writer" (with a captive portal) or on the home network at writer.local, where
+// a phone browser lists, downloads (one file or a zip), uploads, renames and deletes the app's `documents/` files
+// and adds fonts to `settings/fonts/`. Nothing is ever overwritten: an upload that meets a different file of the
+// same name is kept next to it as "name (web N).ext". The page is off until the app starts it, and off again when
+// the app ends or after APP_WEBSHARE_IDLE_S without a request. A 6-digit code, shown by the app, must be typed on
+// the page first (docs/apps.md).
+typedef enum {
+  APP_WEBSHARE_AUTO = 0, // the default: the saved home network, so the phone stays on its Wi-Fi; only when none is
+                         // reachable the access point below (webshare_status says which)
+  APP_WEBSHARE_AP = 1, // own access point "Writer", open, address http://4.3.2.1 (the phone's captive portal opens it)
+  APP_WEBSHARE_HOME = 2, // on the saved home network, http://writer.local (2.4 GHz only, like net_up)
+} app_webshare_mode_t;
+
+#define APP_WEBSHARE_IDLE_S (15 * 60)
+
+typedef struct {
+  bool running;
+  int32_t mode; // APP_WEBSHARE_HOME or APP_WEBSHARE_AP: what is in use
+  char code[8]; // the 6 digits to type on the page, NUL-terminated
+  char network[33]; // AP mode: the network to join ("Writer"); empty otherwise
+  char address[40]; // what to open: "http://4.3.2.1" (AP) or "http://writer.local" (HOME)
+  char ip[16]; // the X's address (4.3.2.1 for the access point)
+  char url[32]; // "http://<ip>/": show it as "Online at ..."
+  char login_url[72]; // "http://<ip>/?t=<128-bit token>": for the QR. One login only, gone at stop or after 15 min;
+                      // never log it. Typing the 6-digit code works as well.
+  uint32_t idle_left_s; // seconds until it switches itself off
+  int32_t locked; // 0 usable; 1 too many wrong codes, locked for a while; 2 too many in all: stopped (start again)
+} app_webshare_status_t;
+
 // ---- the table ----
 
 // Calls returning int: 0 or a count on success, < 0 (an APP_E* value) on failure. Paths are relative
@@ -280,6 +311,12 @@ typedef struct app_api {
   int (*usb_drive_start)(uint32_t connect_timeout_ms);
   int (*usb_drive_state)(void); // app_drive_state_t
   int (*usb_drive_stop)(app_drive_result_t *res);
+
+  // Wi-Fi page (docs/apps.md "Wi-Fi page"). start returns 0 or APP_ENONET (HOME asked and no saved 2.4 GHz network reachable), APP_ENOMEM, APP_EIO,
+  // APP_EINVAL (bad mode); starting again makes a new code. status fills *st (also when stopped) and returns 0.
+  int (*webshare_start)(app_webshare_mode_t mode);
+  void (*webshare_stop)(void);
+  int (*webshare_status)(app_webshare_status_t *st);
 } app_api_t;
 
 #ifdef __cplusplus

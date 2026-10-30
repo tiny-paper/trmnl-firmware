@@ -18,6 +18,7 @@
 #include "app_host.h"
 #include "keyboards.h"
 #include "usb_drive.h"
+#include "webshare.h"
 
 app_host_t app_host;
 
@@ -225,6 +226,8 @@ static bool net_up(void) {
   return connectWithSavedCredentials();
 }
 
+bool app_host_net_up(void) { return net_up(); }
+
 static int http_request(const app_http_request_t *req, void *buf, size_t buf_len, app_http_response_t *resp) {
   if (!req || !req->url || !resp || (!buf && buf_len)) return APP_EINVAL;
   *resp = {APP_ENONET, 0, false};
@@ -330,6 +333,8 @@ static const app_api_t table = {
     keyboards_enable, keyboards_status,
     usb_drive_start, usb_drive_state,
     usb_drive_stop,
+    webshare_start,  webshare_stop,
+    webshare_status,
 };
 
 const app_api_t *app_api_table(void) {

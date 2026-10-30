@@ -24,6 +24,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | settings | `setting_get/set`: up to 256 bytes per key, NVS, per app |
 | exit | `exit(code)`: ends the app now |
 | USB drive (API 2) | `usb_drive_start(timeout)`, `usb_drive_state`, `usb_drive_stop(result)`: below |
+| Wi-Fi page (API 2) | `webshare_start(mode)`, `webshare_stop`, `webshare_status`: see below |
 
 Errors are negative `APP_E*` values.
 
@@ -45,6 +46,27 @@ USB port (`lib/trmnl/include/usb_port.h`, applied by `src/usb_keyboard.cpp`): de
 | host mode, no keyboard within 3 s / keyboard removed | device mode, next probe after 10 s |
 | restart, crash, deep sleep | device mode: the boot (`wake_init.cpp`), a restart handler and `goToSleep` give the PHY back to the USB serial/JTAG and clear the ROM's forced download boot |
 | USB stack does not stop within 1 s, or the boost cannot be switched off | restart (which starts in device mode) |
+
+## Wi-Fi page (last resort for moving files)
+
+From any phone browser, no app: list, download (one file or a zip), upload, rename and delete the app's
+`documents/<folder>/<title>.md|.txt`, and add `settings/fonts/*.ttf|.otf`. Anything else in the app folder
+(`settings/settings.json`, other names, hidden files) is never listed, read, written or removed. Logic in
+`lib/trmnl/src/webshare_*`, server in `src/webshare.cpp`, page in `src/webshare_page.h`, AP and probe URLs shared
+with the Wi-Fi setup portal in `lib/wificaptive/src/captive_ap.cpp`.
+
+| Rule | How |
+|---|---|
+| Off by default | only `webshare_start(APP_WEBSHARE_AP or APP_WEBSHARE_HOME)` from the app; off when the app ends (runner), after 15 min without a request, after 15 wrong codes |
+| Default (`APP_WEBSHARE_AUTO`) | the saved home network, so the phone stays on its Wi-Fi; only if none is reachable the access point. `status.mode` says which. `APP_WEBSHARE_HOME` alone does not fall back (`APP_ENONET`) |
+| One-time link | `status.url` ("Online at ...") and `status.login_url` (`/?t=<128-bit token>`, for a QR): one login, 15 min, gone at stop, a wrong token counts like a wrong code, never logged (test reads the source). Typing the code works too. Changed in place: API 2 is not released |
+| AP mode | open network "Writer", `http://4.3.2.1`, phones open it as a captive portal |
+| Home network | saved 2.4 GHz network, `http://writer.local` (mDNS) and the IP in `status.ip` |
+| Code | 6 digits in `status.code`, the app shows it on the X's screen; no API works without a session from `POST /api/login`; 5 wrong codes lock 60 s (doubling), 15 stop the page |
+| Changes | need the `X-Writer` header (another site's form cannot send it) and the session cookie (SameSite=Strict) |
+| No silent overwrite | upload to `.webshare.tmp` in the target folder, renamed when all announced bytes arrived and the file on disk has that size; same bytes: nothing written; other bytes: saved as `title (web N).md`, the old file untouched; rename onto an existing name is refused |
+| Limits | document 1 MB, font 4 MB, 32 KB of the file system stays free, one upload at a time, 30 s without data drops it, leftover temp files are removed at start |
+| Zip | stored, made while sending (no copy in memory), up to 128 documents; a read error cuts the connection |
 
 ## Rules the firmware enforces
 
@@ -122,6 +144,7 @@ flash a file system image to a real X (it replaces those files); `test/sim/flash
 | on the simulated X: the charger pin read with the right polarity, device mode while docked and in a short power gap, serial keys still work | `test/sim/test_keyboards.py` (the sim has no USB-OTG controller: host mode is not simulated) | below |
 | USB drive: FAT image (damage, random flips, mtools/dosfstools interop), names, conflicts, full disk, power loss at every write, when a showing takes changes | `test/test_drive_*` | `pio test -e native -f 'test_drive_*'` |
 | USB drive on the simulated X: journal finished or dropped on the real LittleFS, power loss in it, a drive no computer takes (the sim has no USB OTG) | `test/sim/test_drive.py` | below |
+| Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
 `$TRMNLSIM_DIR`), then `python3 -m venv .venv && .venv/bin/pip install pytest littlefs-python` and
@@ -176,3 +199,27 @@ real computers' FAT writes.
 | Show the drive, press reset; show it, hold the touch bar 4 s | serial back after each; nothing taken |
 | Hold BOOT and press reset while the drive shows | ROM download mode, flashing works |
 | Laptop goes to sleep while the drive shows | the drive ends (`ended (2)`), changes after the last sync not taken unless 2 s quiet |
+
+### Wi-Fi page (nothing of this ran on a device or in the simulator)
+
+Needs an app that calls `webshare_start` and shows `status.code`. Take a phone and a PC browser.
+
+| Step | Look for |
+|---|---|
+| Start with Wi-Fi on (default) | `status.mode` home; phone on its own Wi-Fi opens `status.url`; the QR link logs in at once, the same link a second time asks for the code |
+| Start with the router off | falls back to "Writer", `status.mode` AP |
+| Start AP mode (forced) | network "Writer" appears, phone opens the page by itself (captive portal; if not, `http://4.3.2.1`), X shows the code |
+| Open the page, type a wrong code 5 times | "too many wrong codes", the right code is refused for a minute |
+| Right code | list of documents and fonts, free space |
+| Upload a .md to a folder, then the same again, then a changed copy | "saved", "already on the X", "kept both, saved as ... (web 1)"; the writer shows both files; the first is unchanged |
+| Upload while pulling the phone off Wi-Fi at 50 % | no half file in the writer's list; next start log has no leftover `.webshare.tmp` |
+| Upload 1 MB+ and a file with a name like `a:b.md` | refused with a reason |
+| Rename onto an existing title | "name already taken" |
+| Delete a document | gone from the writer's list |
+| Download all as zip | opens on the phone and PC, same files and sizes |
+| Add a .ttf | appears under Fonts; writer can use it |
+| Leave it 15 min | page stops answering, "Writer" network gone; the app's status says not running |
+| Long press (leave the app) while the page is on | network gone |
+| Home mode with the home Wi-Fi | `writer.local` opens on PC and iPhone; on Android use the IP |
+| Android and iPhone captive pop-up | opens the page (iOS pop-up may block cookies: then open it in Safari via `http://4.3.2.1`) |
+| Heap while serving a 100-file zip | no reset; serial log shows no allocation errors |

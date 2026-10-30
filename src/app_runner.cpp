@@ -25,6 +25,7 @@
 #include "app_host.h"
 #include "keyboards.h"
 #include "usb_drive.h"
+#include "webshare.h"
 
 #define APP_POLL_MS       20
 #define APP_LONG_PRESS_MS 1500
@@ -287,6 +288,7 @@ void apps_run(const char *path) {
   Log_info("Apps: %s ended with %d", app_host.name, code);
   keyboards_end(); // the USB port back in device mode before anything else
   iqs323_task_set_streaming_mode(false);
+  webshare_stop(); // the page never outlives the app
   app_host_close_files();
   esp_elf_deinit(&elf);
   vQueueDelete(app_host.events);
