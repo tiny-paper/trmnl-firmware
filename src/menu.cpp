@@ -25,6 +25,8 @@
 
 #include "ble_keyboard.h"
 #include "cached_images.h"
+#include <hints.h>
+
 #include "fireworks.h"
 #include "fonts.h"
 #include "messages.h"
@@ -50,37 +52,12 @@ typedef struct {
 #define MENU_ITEM_SPACING  110 // baseline to baseline
 #define MENU_ARROW_SIZE    40    // arrow height; it is half as wide
 #define MENU_ARROW_GAP     40     // between the arrow and the item text
-#define MENU_HINT_MARGIN   40   // from the bottom of the screen to the hint baselines
-#define MENU_HINT_PAD_X    56    // around a hint, inside its pill
-#define MENU_HINT_PAD_Y    18
-#define MENU_HINT_BORDER   3    // the pill's outline
-#define MENU_HINT_ICON_GAP 16 // between a hint's icon and its label
 #define MENU_BODY_SPACING  64  // baseline to baseline of the text above the items
 #define MENU_BODY_GAP      90      // from the last body line to the first item
 #define MENU_BODY_VALUE_X  380 // a "label\tvalue" line's value, from the text column
 
 // Body lines of the menu on the screen, for the arrow's position
 static int menu_body_count = 0;
-
-// Fill a triangle pointing in the direction dir (0 = right, 1 = up, 2 = down) centered on (cx, cy).
-// size is its extent along the base; the tip is size/2 from the base.
-static void menu_fill_triangle(int cx, int cy, int size, int dir, uint8_t color) {
-  int half = size / 2;
-  for (int i = 0; i <= half; i++) {
-    int len = size - 2 * i; // length of the line i pixels from the base
-    switch (dir) {
-    case 0:
-      bbep.fillRect(cx - half / 2 + i, cy - len / 2, 1, len, color);
-      break;
-    case 1:
-      bbep.fillRect(cx - len / 2, cy + half / 2 - i, len, 1, color);
-      break;
-    case 2:
-      bbep.fillRect(cx - len / 2, cy - half / 2 + i, len, 1, color);
-      break;
-    }
-  }
-}
 
 // From the first body line's baseline to the first item's, 0 without a body
 static int menu_body_height(void) {
@@ -135,12 +112,10 @@ static void menu_draw_arrow(int count, int index, uint8_t color) {
   if (color == BBEP_WHITE) {
     bbep.fillRect(r.x, r.y, r.w, r.h, BBEP_WHITE);
   } else {
-    menu_fill_triangle(r.x + r.w / 2, r.y + r.h / 2, MENU_ARROW_SIZE, 0, color);
+    hints_fill_triangle(r.x + r.w / 2, r.y + r.h / 2, MENU_ARROW_SIZE, 0, color);
   }
 }
 
-// Center of a hint slot: the same x positions as the TRMNL X's touchbar pills
-static int menu_hint_x(int slot) { return bbep.width() * (2 * slot + 1) / 6; }
 
 // Draws text centered on cx in the current font
 static void menu_draw_centered(const char *text, int cx, int baseline) {
@@ -150,41 +125,14 @@ static void menu_draw_centered(const char *text, int cx, int baseline) {
   bbep.drawString(text, cx - rect.w / 2, baseline);
 }
 
-// How a hint is drawn
-enum menu_hint_style_t {
-  MENU_HINT_PLAIN,    // its content alone
-  MENU_HINT_OUTLINED, // in an outlined pill
-  MENU_HINT_FILLED,   // white in a black pill
-};
+typedef hints_style_t menu_hint_style_t;
+#define MENU_HINT_PLAIN    HINTS_PLAIN
+#define MENU_HINT_OUTLINED HINTS_OUTLINED
+#define MENU_HINT_FILLED   HINTS_FILLED
 
-// One of the control scheme's hints along the bottom edge: an up/down triangle, if any, then the
-// label, drawn in `style`
+// One of the control scheme's hints along the bottom edge (hints.h draws it)
 static void menu_draw_hint(const menu_hint_t &hint, int slot, menu_hint_style_t style = MENU_HINT_OUTLINED) {
-  if (!hint.label) return;
-  const int y = bbep.height() - MENU_HINT_MARGIN;
-  BB_RECT rect, line;
-  bbep.setFont(Inter_18);
-  bbep.setCursor(0, y);
-  bbep.getStringBox(hint.label, &rect);
-  bbep.getStringBox("Ag", &line); // the same height for every hint's pill
-  const int tri = hint.icon != MENU_HINT_ICON_NONE ? line.h * 2 / 3 : 0;
-  const int content_w = rect.w + (tri ? tri + MENU_HINT_ICON_GAP : 0);
-  const int left = menu_hint_x(slot) - content_w / 2;
-  const int px = left - MENU_HINT_PAD_X, py = line.y - MENU_HINT_PAD_Y;
-  const int pw = content_w + 2 * MENU_HINT_PAD_X, ph = line.h + 2 * MENU_HINT_PAD_Y;
-  const int b = MENU_HINT_BORDER;
-  const bool filled = style == MENU_HINT_FILLED;
-  const uint8_t fg = filled ? BBEP_WHITE : BBEP_BLACK, bg = filled ? BBEP_BLACK : BBEP_WHITE;
-  if (style != MENU_HINT_PLAIN) {
-    display_fill_pill(px, py, pw, ph, BBEP_BLACK);
-    display_fill_pill(px + b, py + b, pw - 2 * b, ph - 2 * b, bg);
-  }
-  if (tri) {
-    menu_fill_triangle(left + tri / 2, line.y + line.h / 2, tri, hint.icon == MENU_HINT_ICON_UP ? 1 : 2, fg);
-  }
-  bbep.setTextColor(fg, bg);
-  bbep.drawString(hint.label, left + content_w - rect.w, y);
-  bbep.setTextColor(BBEP_BLACK, BBEP_WHITE);
+  hints_draw(hint.label, (hints_icon_t)hint.icon, slot, style);
 }
 
 static void menu_draw_hints(const menu_hint_t *hints) {
@@ -427,7 +375,7 @@ static void tutorial_show_screen(const menu_tutorial_t &tutorial, bool replace) 
   menu_draw_centered(tutorial.subtitle, bbep.width() / 2, TUTORIAL_SUBTITLE_Y);
   for (int slot = 0; slot < MENU_HINT_SLOTS; slot++) {
     const menu_tutorial_control_t &control = tutorial.controls[slot];
-    const int x = menu_hint_x(slot);
+    const int x = hints_slot_x(slot);
     bbep.setFont(Roboto_Black_24);
     menu_draw_centered(control.title, x, TUTORIAL_CONTROLS_Y);
     bbep.setFont(Inter_18);
@@ -446,7 +394,7 @@ static void tutorial_celebrate(const menu_tutorial_t &tutorial) {
   fireworks_show();
   bbep.setTextColor(BBEP_WHITE, BBEP_BLACK);
   bbep.setFont(Roboto_Black_24);
-  menu_draw_centered(tutorial.finish, bbep.width() / 2, bbep.height() - MENU_HINT_MARGIN);
+  menu_draw_centered(tutorial.finish, bbep.width() / 2, bbep.height() - HINTS_MARGIN);
   bbep.setTextColor(BBEP_BLACK, BBEP_WHITE);
   bbep.partialUpdate(false);
   Log_info("Tutorial: fireworks end");
