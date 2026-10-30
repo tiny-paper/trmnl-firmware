@@ -8,6 +8,7 @@
 
 #define WS_PIN_LEN 6
 #define WS_TOKEN_LEN 16 // hex characters
+#define WS_LOGIN_TOKEN_LEN 32 // hex characters: 128 bits
 #define WS_SESSIONS 4
 #define WS_FAILS_PER_ROUND 5 // wrong codes before a lock
 #define WS_LOCK_MS 60000u // first lock; doubles with each round
@@ -24,10 +25,21 @@ typedef struct {
   uint32_t lock_ms; // 0: not locked
   char tokens[WS_SESSIONS][WS_TOKEN_LEN + 1]; // "" for a free slot
   int next_slot;
+  char login_token[WS_LOGIN_TOKEN_LEN + 1]; // one-time, "" when used or not set
+  uint32_t token_at;
 } ws_auth_t;
 
 // A new code from `random` (a uniform 32-bit number; the bias of % 10^6 is below 0.03 %) and no sessions
 void ws_auth_init(ws_auth_t *a, uint32_t random);
+
+// Makes the one-time login token (for the link / QR on the X) from 4 random words; valid for one login and
+// WS_IDLE_MS from `now`, gone at stop (the whole state is reset by ws_auth_init)
+void ws_auth_new_token(ws_auth_t *a, const uint32_t random[4], uint32_t now);
+
+// Logs in with the one-time token. OK only once: the token is used up at the first good login. A wrong or
+// expired token counts as a wrong code (same lock). Session token as in ws_auth_login.
+ws_auth_result_t ws_auth_token_login(ws_auth_t *a, const char *token, uint32_t now, const uint32_t token_random[2],
+                                     char *token_out);
 
 // Checks a code typed on the page. On OK, `token_random[2]` become a session token in `token_out`
 // (WS_TOKEN_LEN + 1 bytes). The compare takes the same time for every wrong code. While locked or dead nothing is

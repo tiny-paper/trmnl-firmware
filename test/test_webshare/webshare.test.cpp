@@ -5,6 +5,8 @@
 
 #include "memfs.h"
 #include <webshare_auth.h>
+#include <stdio.h>
+#include <webshare_mode.h>
 #include <webshare_names.h>
 #include <webshare_store.h>
 #include <webshare_zip.h>
@@ -137,6 +139,87 @@ void test_idle_timer() {
   TEST_ASSERT_TRUE(ws_idle_expired(1000, 1000 + WS_IDLE_MS));
   TEST_ASSERT_FALSE(ws_idle_expired(0xFFFFFF00u, 0x100)); // across the millis wrap
   TEST_ASSERT_TRUE(ws_idle_expired(0xFFFFFF00u, 0xFFFFFF00u + WS_IDLE_MS));
+}
+
+// ---- mode and one-time token ----
+
+void test_home_when_wifi_is_up_ap_when_not() {
+  app_webshare_mode_t m;
+  TEST_ASSERT_TRUE(ws_pick_mode(APP_WEBSHARE_AUTO, true, &m));
+  TEST_ASSERT_EQUAL(APP_WEBSHARE_HOME, m);
+  TEST_ASSERT_TRUE(ws_pick_mode(APP_WEBSHARE_AUTO, false, &m));
+  TEST_ASSERT_EQUAL(APP_WEBSHARE_AP, m);
+  TEST_ASSERT_FALSE(ws_pick_mode(APP_WEBSHARE_HOME, false, &m)); // asked for home, no fallback
+  TEST_ASSERT_TRUE(ws_pick_mode(APP_WEBSHARE_HOME, true, &m));
+  TEST_ASSERT_TRUE(ws_pick_mode(APP_WEBSHARE_AP, true, &m));
+  TEST_ASSERT_EQUAL(APP_WEBSHARE_AP, m);
+  TEST_ASSERT_FALSE(ws_pick_mode((app_webshare_mode_t)9, true, &m));
+}
+
+static const uint32_t T4[4] = {1, 2, 3, 0xabcdef01};
+
+void test_login_token_works_once_then_needs_the_cookie() {
+  ws_auth_t a;
+  ws_auth_init(&a, 5);
+  ws_auth_new_token(&a, T4, 1000);
+  TEST_ASSERT_EQUAL_STRING("000000010000000200000003abcdef01", a.login_token);
+  char sid[WS_TOKEN_LEN + 1];
+  TEST_ASSERT_EQUAL(WS_AUTH_OK, ws_auth_token_login(&a, a.login_token, 2000, TR, sid));
+  TEST_ASSERT_TRUE(ws_auth_session_ok(&a, sid));
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, "000000010000000200000003abcdef01", 3000, TR, sid)); // used
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, "", 3000, TR, sid)); // empty is not a match for a used one
+  TEST_ASSERT_EQUAL(WS_AUTH_OK, ws_auth_login(&a, "000005", 3000, TR, sid)); // the code still works
+}
+
+void test_wrong_or_expired_token_is_refused_and_counts() {
+  ws_auth_t a;
+  ws_auth_init(&a, 5);
+  ws_auth_new_token(&a, T4, 1000);
+  char sid[WS_TOKEN_LEN + 1] = "";
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, "000000010000000200000003abcdef02", 1100, TR, sid));
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, "short", 1100, TR, sid));
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, nullptr, 1100, TR, sid));
+  TEST_ASSERT_EQUAL(2 + 1, a.fails);
+  TEST_ASSERT_EQUAL_STRING("", sid);
+  // expired: right token, but 15 minutes later
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&a, "000000010000000200000003abcdef01", 1000 + WS_IDLE_MS, TR, sid));
+  // just before: fine
+  ws_auth_t b;
+  ws_auth_init(&b, 5);
+  ws_auth_new_token(&b, T4, 1000);
+  TEST_ASSERT_EQUAL(WS_AUTH_OK, ws_auth_token_login(&b, "000000010000000200000003abcdef01", 1000 + WS_IDLE_MS - 1, TR, sid));
+  // no token made at all (stopped and not restarted): nothing matches
+  ws_auth_t c;
+  ws_auth_init(&c, 5);
+  TEST_ASSERT_EQUAL(WS_AUTH_WRONG, ws_auth_token_login(&c, "", 0, TR, sid));
+}
+
+void test_token_guesses_lock_like_wrong_codes() {
+  ws_auth_t a;
+  ws_auth_init(&a, 5);
+  ws_auth_new_token(&a, T4, 0);
+  char sid[WS_TOKEN_LEN + 1];
+  for (int i = 0; i < WS_FAILS_PER_ROUND - 1; i++) ws_auth_token_login(&a, "x", 10, TR, sid);
+  TEST_ASSERT_EQUAL(WS_AUTH_LOCKED, ws_auth_token_login(&a, "x", 10, TR, sid));
+  TEST_ASSERT_EQUAL(WS_AUTH_LOCKED, ws_auth_token_login(&a, "000000010000000200000003abcdef01", 20, TR, sid));
+}
+
+// The firmware must never write the code, the token or the login link to the log: no Log_ line in
+// src/webshare.cpp may mention them (the file is read from the project root, where pio runs the tests)
+void test_firmware_never_logs_token_or_code() {
+  FILE *f = fopen("src/webshare.cpp", "r");
+  TEST_ASSERT_NOT_NULL_MESSAGE(f, "src/webshare.cpp not found");
+  char line[512];
+  int logs = 0;
+  while (fgets(line, sizeof(line), f)) {
+    if (!strstr(line, "Log_") && !strstr(line, "Serial.")) continue;
+    logs++;
+    for (const char *w : {"token", "login", "pin", "code", "auth", "cookie", "wsid", "S.url", "status"}) {
+      TEST_ASSERT_NULL_MESSAGE(strstr(line, w), line);
+    }
+  }
+  fclose(f);
+  TEST_ASSERT_TRUE(logs >= 5); // the check really saw the log lines
 }
 
 // ---- upload ----
@@ -432,6 +515,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_wrong_codes_lock_then_die);
   RUN_TEST(test_sessions_are_capped);
   RUN_TEST(test_idle_timer);
+  RUN_TEST(test_home_when_wifi_is_up_ap_when_not);
+  RUN_TEST(test_login_token_works_once_then_needs_the_cookie);
+  RUN_TEST(test_wrong_or_expired_token_is_refused_and_counts);
+  RUN_TEST(test_token_guesses_lock_like_wrong_codes);
+  RUN_TEST(test_firmware_never_logs_token_or_code);
   RUN_TEST(test_upload_new_file_is_atomic_and_clean);
   RUN_TEST(test_upload_never_overwrites_different_file);
   RUN_TEST(test_upload_of_same_bytes_writes_nothing);

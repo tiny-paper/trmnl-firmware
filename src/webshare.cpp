@@ -15,6 +15,7 @@
 #include <esp_random.h>
 #include <trmnl_log.h>
 #include <webshare_auth.h>
+#include <webshare_mode.h>
 #include <webshare_store.h>
 #include <webshare_zip.h>
 
@@ -122,7 +123,7 @@ static struct {
   AsyncWebServer *server;
   DNSServer *dns;
   SemaphoreHandle_t lock; // start/stop and the upload state; handlers run in the async_tcp task
-  char network[33], address[40], ip[16];
+  char network[33], address[40], ip[16], url[32];
 } S;
 
 static ws_upload_t upload;
@@ -447,6 +448,18 @@ void webshare_stop(void) {
 static void add_routes(AsyncWebServer &server) {
   if (S.mode == APP_WEBSHARE_AP) captive_ap_routes(server, WS_AP_URL);
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *r) {
+    if (r->hasParam("t")) { // the one-time link from the X's QR: log in, then drop the token from the address
+      uint32_t rnd[2] = {esp_random(), esp_random()};
+      char sid[WS_TOKEN_LEN + 1];
+      S.last_request = millis();
+      if (ws_auth_token_login(&S.auth, param(r, "t").c_str(), millis(), rnd, sid) == WS_AUTH_OK) {
+        AsyncWebServerResponse *go = r->beginResponse(302);
+        go->addHeader("Location", "/");
+        go->addHeader("Set-Cookie", String("wsid=") + sid + "; Path=/; HttpOnly; SameSite=Strict");
+        go->addHeader("Cache-Control", "no-store");
+        return r->send(go);
+      }
+    }
     AsyncWebServerResponse *res = r->beginResponse(200, "text/html; charset=utf-8", WEBSHARE_PAGE);
     res->addHeader("Cache-Control", "no-store");
     r->send(res);
@@ -464,12 +477,17 @@ static void add_routes(AsyncWebServer &server) {
   });
 }
 
-int webshare_start(app_webshare_mode_t mode) {
-  if (mode != APP_WEBSHARE_AP && mode != APP_WEBSHARE_HOME) return APP_EINVAL;
+int webshare_start(app_webshare_mode_t requested) {
+  if (requested != APP_WEBSHARE_AUTO && requested != APP_WEBSHARE_AP && requested != APP_WEBSHARE_HOME) {
+    return APP_EINVAL;
+  }
   if (!S.lock) S.lock = xSemaphoreCreateMutex();
   if (!S.lock) return APP_ENOMEM;
   webshare_stop(); // a new start is a new code
-  if (mode == APP_WEBSHARE_HOME && !app_host_net_up()) return APP_ENONET;
+  app_webshare_mode_t mode;
+  bool wifi_up = requested == APP_WEBSHARE_AP ? false : app_host_net_up();
+  if (!ws_pick_mode(requested, wifi_up, &mode)) return APP_ENONET;
+  if (mode == APP_WEBSHARE_AP) Log_info("webshare: no home network, using the access point");
 
   xSemaphoreTake(S.lock, portMAX_DELAY);
   snprintf(base_dir, sizeof(base_dir), "%s", app_host.dir);
@@ -478,6 +496,8 @@ int webshare_start(app_webshare_mode_t mode) {
   ws_store_cleanup(&FS); // temporary files a power loss left
   memset(&S.auth, 0, sizeof(S.auth));
   ws_auth_init(&S.auth, esp_random());
+  uint32_t tok[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
+  ws_auth_new_token(&S.auth, tok, millis());
   S.mode = mode;
   S.last_request = millis();
   S.network[0] = '\0';
@@ -504,6 +524,7 @@ int webshare_start(app_webshare_mode_t mode) {
     snprintf(S.ip, sizeof(S.ip), "%s", WiFi.localIP().toString().c_str());
   }
   if (rc == 0) {
+    snprintf(S.url, sizeof(S.url), "http://%s/", S.ip);
     add_routes(*S.server);
     S.server->begin();
     S.running = true;
@@ -529,6 +550,10 @@ int webshare_status(app_webshare_status_t *st) {
   memset(st, 0, sizeof(*st));
   if (!S.lock || !S.running) return 0;
   st->running = true;
+  st->mode = S.mode;
+  snprintf(st->url, sizeof(st->url), "%s", S.url);
+  if (S.auth.login_token[0]) snprintf(st->login_url, sizeof(st->login_url), "%s?t=%s", S.url, S.auth.login_token);
+  else snprintf(st->login_url, sizeof(st->login_url), "%s", S.url); // used up: the code is what is left
   snprintf(st->code, sizeof(st->code), "%s", S.auth.pin);
   snprintf(st->network, sizeof(st->network), "%s", S.network);
   snprintf(st->address, sizeof(st->address), "%s", S.address);

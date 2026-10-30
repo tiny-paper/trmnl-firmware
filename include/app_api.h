@@ -165,6 +165,8 @@ typedef struct {
 // the app ends or after APP_WEBSHARE_IDLE_S without a request. A 6-digit code, shown by the app, must be typed on
 // the page first (docs/apps.md).
 typedef enum {
+  APP_WEBSHARE_AUTO = 0, // the default: the saved home network, so the phone stays on its Wi-Fi; only when none is
+                         // reachable the access point below (webshare_status says which)
   APP_WEBSHARE_AP = 1, // own access point "Writer", open, address http://4.3.2.1 (the phone's captive portal opens it)
   APP_WEBSHARE_HOME = 2, // on the saved home network, http://writer.local (2.4 GHz only, like net_up)
 } app_webshare_mode_t;
@@ -173,10 +175,14 @@ typedef enum {
 
 typedef struct {
   bool running;
+  int32_t mode; // APP_WEBSHARE_HOME or APP_WEBSHARE_AP: what is in use
   char code[8]; // the 6 digits to type on the page, NUL-terminated
   char network[33]; // AP mode: the network to join ("Writer"); empty otherwise
   char address[40]; // what to open: "http://4.3.2.1" (AP) or "http://writer.local" (HOME)
-  char ip[16]; // the X's address, for browsers that do not find .local
+  char ip[16]; // the X's address (4.3.2.1 for the access point)
+  char url[32]; // "http://<ip>/": show it as "Online at ..."
+  char login_url[72]; // "http://<ip>/?t=<128-bit token>": for the QR. One login only, gone at stop or after 15 min;
+                      // never log it. Typing the 6-digit code works as well.
   uint32_t idle_left_s; // seconds until it switches itself off
   int32_t locked; // 0 usable; 1 too many wrong codes, locked for a while; 2 too many in all: stopped (start again)
 } app_webshare_status_t;
@@ -243,7 +249,7 @@ typedef struct app_api {
   // Ends the app now (does not return), as if app_main returned `code`
   void (*exit)(int code);
 
-  // API 2: Wi-Fi page. start returns 0 or APP_ENONET (no saved 2.4 GHz network, HOME), APP_ENOMEM, APP_EIO,
+  // API 2: Wi-Fi page. start returns 0 or APP_ENONET (HOME asked and no saved 2.4 GHz network reachable), APP_ENOMEM, APP_EIO,
   // APP_EINVAL (bad mode); starting again makes a new code. status fills *st (also when stopped) and returns 0.
   int (*webshare_start)(app_webshare_mode_t mode);
   void (*webshare_stop)(void);
