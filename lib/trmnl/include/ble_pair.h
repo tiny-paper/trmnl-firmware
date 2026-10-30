@@ -58,6 +58,10 @@ typedef struct {
   const char *message; // shown on the list screen, e.g. why the last try failed; nullptr for none
 } ble_pair_t;
 
+// The passkey screen's instruction: keyboards send the passkey only on Enter (device report: without it the code
+// was typed but never sent)
+#define BLE_PASSKEY_TEXT "Type these 6 digits on your keyboard, then press Enter"
+
 // Enabled by the app; `bond` is the stored bond or nullptr
 uint32_t ble_pair_enable(ble_pair_t *p, const ble_pair_peer_t *bond);
 uint32_t ble_pair_disable(ble_pair_t *p);

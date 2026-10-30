@@ -150,8 +150,14 @@ void test_events_out_of_order_are_ignored() {
   TEST_ASSERT_EQUAL(BLE_PAIR_LIST, p.state);
 }
 
+void test_passkey_screen_says_press_enter() {
+  TEST_ASSERT_NOT_NULL(strstr(BLE_PASSKEY_TEXT, "6 digits"));
+  TEST_ASSERT_NOT_NULL(strstr(BLE_PASSKEY_TEXT, "then press Enter"));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_passkey_screen_says_press_enter);
   RUN_TEST(test_no_bond_shows_the_list_and_scans);
   RUN_TEST(test_no_keyboard_found_a_tap_does_nothing);
   RUN_TEST(test_found_keyboards_are_listed_once_and_bounded);

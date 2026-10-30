@@ -78,8 +78,7 @@ static void draw(const ble_pair_t *p) {
     bbep.drawString(line, x, y);
     break;
   case BLE_PAIR_PASSKEY: {
-    snprintf(line, sizeof(line), "Type this on %s, then Enter:", p->target.name[0] ? p->target.name : "the keyboard");
-    bbep.drawString(line, x, y);
+    bbep.drawString(BLE_PASSKEY_TEXT, x, y);
     int dh = h / 4, gap = dh / 4, dx = x;
     uint32_t key = p->passkey;
     int digits[6];
