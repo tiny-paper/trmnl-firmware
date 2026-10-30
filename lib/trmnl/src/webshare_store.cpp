@@ -149,12 +149,15 @@ ws_result_t ws_upload_end(ws_upload_t *u, ws_put_t *how, char *final_path) {
     ws_upload_abort(u);
     return WS_E_SHORT;
   }
-  if (fs->close(fs->ctx, u->file) < 0) { // the last buffered bytes did not reach the disk
-    u->file = nullptr;
+  // Buffered bytes reach the disk at close: a failing close, or a file shorter than what was written (LittleFS
+  // reports a full disk only there, and the Arduino wrapper drops the error), means the upload is lost
+  int closed = fs->close(fs->ctx, u->file);
+  u->file = nullptr;
+  uint32_t on_disk = 0;
+  if (closed < 0 || !exists(fs, u->tmp, &on_disk) || on_disk != u->got) {
     ws_upload_abort(u);
     return WS_E_NO_SPACE;
   }
-  u->file = nullptr;
   char target[WS_PATH_MAX + 1];
   strcpy(target, u->path);
   *how = WS_PUT_NEW;

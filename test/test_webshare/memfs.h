@@ -20,6 +20,7 @@ struct MemFs {
   long fail_write_after = -1; // total bytes accepted, then writes fail (disk full); -1 never
   bool fail_rename = false;
   bool fail_close = false;
+  bool close_loses_last_byte = false; // LittleFS: the full disk shows only at close, and the wrapper hides it
   long fail_read_after = -1; // a file read fails after this many bytes of one file
   long written = 0;
   ws_fs_t fs;
@@ -99,6 +100,7 @@ inline MemFs::MemFs() {
     for (size_t i = 0; i < m->open_handles.size(); i++) {
       if (m->open_handles[i] == h) m->open_handles.erase(m->open_handles.begin() + (long)i);
     }
+    if (h->write && m->close_loses_last_byte && !m->nodes[h->path].data.empty()) m->nodes[h->path].data.pop_back();
     delete h;
     return m->fail_close ? -1 : 0;
   };

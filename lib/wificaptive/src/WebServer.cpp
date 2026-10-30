@@ -6,6 +6,7 @@
 #include <trmnl_log.h>
 
 #include "WifiCaptive.h"
+#include "captive_ap.h"
 
 namespace {
   const char *connectionStateName(WifiConnectionState state) {
@@ -36,30 +37,7 @@ void setUpWebserver(AsyncWebServer &server, const IPAddress &localIP, WifiOperat
   // (IOS) there is a 128KB limit to the size of the HTML. The HTML can reference external resources/images that bring
   // the total over 128KB SAFARI (IOS) popup browser has some severe limitations (javascript disabled, cookies disabled)
 
-  // Required
-  server.on("/connecttest.txt", [](AsyncWebServerRequest *request) {
-    request->redirect("http://logout.net");
-  }); // windows 11 captive portal workaround
-  server.on("/wpad.dat", [](AsyncWebServerRequest *request) {
-    request->send(404);
-  }); // Honestly don't understand what this is but a 404 stops win 10 keep calling this repeatedly and panicking the
-      // esp32 :)
-
-  // Background responses: Probably not all are Required, but some are. Others might speed things up?
-  // A Tier (commonly used by modern systems)
-  server.on("/generate_204",
-            [](AsyncWebServerRequest *request) { request->redirect(LocalIPURL); }); // android captive portal redirect
-  server.on("/redirect", [](AsyncWebServerRequest *request) { request->redirect(LocalIPURL); }); // microsoft redirect
-  server.on("/hotspot-detect.html",
-            [](AsyncWebServerRequest *request) { request->redirect(LocalIPURL); }); // apple call home
-  server.on("/canonical.html",
-            [](AsyncWebServerRequest *request) { request->redirect(LocalIPURL); }); // firefox captive portal call home
-  server.on("/success.txt",
-            [](AsyncWebServerRequest *request) { request->send(200); }); // firefox captive portal call home
-  server.on("/ncsi.txt", [](AsyncWebServerRequest *request) { request->redirect(LocalIPURL); }); // windows call home
-
-  // return 404 to webpage icon
-  server.on("/favicon.ico", [](AsyncWebServerRequest *request) { request->send(404); }); // webpage icon
+  captive_ap_routes(server, LocalIPURL);
 
   // Serve index.html
   server.on("/", HTTP_ANY, [&](AsyncWebServerRequest *request) {

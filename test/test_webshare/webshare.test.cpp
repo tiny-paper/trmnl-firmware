@@ -226,6 +226,17 @@ void test_close_failure_means_no_file() {
   TEST_ASSERT_FALSE(m.has("documents/a/" WS_TMP_NAME));
 }
 
+void test_silent_loss_at_close_is_caught() {
+  MemFs m;
+  m.put("documents/a/b.md", "old");
+  m.close_loses_last_byte = true; // no error from close, but the file is short
+  ws_result_t rc;
+  up(m, "documents/a/b.md", "new data", nullptr, nullptr, &rc);
+  TEST_ASSERT_EQUAL(WS_E_NO_SPACE, rc);
+  TEST_ASSERT_EQUAL_STRING("old", m.get("documents/a/b.md").c_str());
+  TEST_ASSERT_FALSE(m.has("documents/a/" WS_TMP_NAME));
+}
+
 void test_cable_pulled_midway_drops_the_temp() {
   MemFs m;
   m.put("documents/a/b.md", "old");
@@ -428,6 +439,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_upload_refused_when_it_would_fill_the_disk);
   RUN_TEST(test_full_disk_midway_leaves_old_file_and_no_temp);
   RUN_TEST(test_close_failure_means_no_file);
+  RUN_TEST(test_silent_loss_at_close_is_caught);
   RUN_TEST(test_cable_pulled_midway_drops_the_temp);
   RUN_TEST(test_power_loss_leaves_old_file_and_cleanup_removes_temp);
   RUN_TEST(test_second_upload_while_one_runs_is_busy);
