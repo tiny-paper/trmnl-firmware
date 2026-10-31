@@ -11,6 +11,7 @@ enum class touch_gesture_t : uint8_t {
   DOWN, // a touch started (the menu acts on it)
   TAP,  // released before the long press time (apps and firmware screens act on it)
   LONG, // held for TOUCHBAR_LONG_PRESS_MS (ends an app or a firmware screen)
+  HOLD, // released after TOUCH_HOLD_MS, before the long press, on a zone the app asked for (touch_hold.h); else TAP
 };
 
 struct touch_event_t {
@@ -25,8 +26,11 @@ struct touch_event_t {
 // (the tap that opened the menu, chose the app or woke the device) is not reported.
 void touchbar_input_begin(const char *consumer);
 
-// Back to event mode (TRMNL's sleep and wake rules).
+// Back to event mode (TRMNL's sleep and wake rules). Also forgets the hold zones.
 void touchbar_input_end(void);
+
+// The zones (bit per channel, touch_hold.h) whose release after TOUCH_HOLD_MS is a HOLD; 0 (the default) for taps only
+void touchbar_input_set_hold(uint32_t zones);
 
 // The events since the last call, oldest first; returns how many (up to TOUCHBAR_INPUT_MAX).
 int touchbar_input_poll(touch_event_t *out);

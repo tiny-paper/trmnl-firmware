@@ -23,7 +23,8 @@ extern "C" {
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
 // Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
-#define APP_API_MINOR 3 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files
+#define APP_API_MINOR 4 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files;
+                        // 2.4: ESP-NOW receive, touch hold
 
 // ---- app header ----
 
@@ -127,7 +128,10 @@ typedef enum {
   APP_GESTURE_TAP,
   APP_GESTURE_SWIPE_LEFT,
   APP_GESTURE_SWIPE_RIGHT,
+  APP_GESTURE_HOLD, // API 2.4, only after touch_hold(): the zone held APP_TOUCH_HOLD_MS, released before the long press
 } app_gesture_t;
+
+#define APP_TOUCH_HOLD_MS 600 // a hold; from 1500 ms (the long press) the app is asked to exit as before
 
 typedef struct {
   uint8_t type; // app_event_type_t
@@ -262,6 +266,17 @@ typedef struct {
   uint16_t reserved;
 } app_local_time_t;
 
+// ---- ESP-NOW (API 2.4) ----
+
+#define APP_ESPNOW_MAX 250 // ESP-NOW v1 payload limit
+
+typedef struct {
+  uint8_t src[6]; // the sender's MAC
+  int8_t rssi; // of the frame, dBm
+  uint8_t len;
+  uint8_t data[APP_ESPNOW_MAX];
+} app_espnow_pkt_t;
+
 // ---- the table ----
 
 // Calls returning int: 0 or a count on success, < 0 (an APP_E* value) on failure. Paths are relative
@@ -377,6 +392,24 @@ typedef struct app_api {
   // writer page. Returns what webshare_start does, APP_EINVAL also for files that are NULL or not valid. The strings are
   // copied
   int (*webshare_start_files)(app_webshare_mode_t mode, const app_webshare_files_t *files);
+
+  // ---- API 2.4 (api->size >= APP_API_SLOT(41)) ----
+
+  // ESP-NOW receive (docs/apps.md "ESP-NOW"): the station MAC becomes `mac` with bit 0 of byte 0 cleared (as the ELRS
+  // backpack sets its UID), Wi-Fi off any network, on `channel` (1..13); every ESP-NOW frame that arrives is queued
+  // (64 frames; more are dropped and counted). Returns 0, APP_EINVAL (mac NULL or all zero, bad channel), APP_EBUSY
+  // (the Wi-Fi page, net_up's network, a Bluetooth keyboard or ESP-NOW itself holds the radio), APP_ENOMEM or APP_EIO.
+  // While it runs net_up fails and webshare_start, webshare_start_files and keyboard_enable(APP_KBD_BLE) return
+  // APP_EBUSY. The MAC is never logged.
+  int (*espnow_start)(const uint8_t mac[6], uint8_t channel);
+  // Takes one queued frame: 1 with *pkt filled, 0 when none waits or ESP-NOW is off (never blocks), APP_EINVAL (NULL)
+  int (*espnow_recv)(app_espnow_pkt_t *pkt);
+  // Ends it: the original MAC and protocol back, the radio off. Returns the frames dropped since start (0 when off).
+  // The firmware calls it when the app ends
+  int (*espnow_stop)(void);
+  // `zones`: 1 << APP_TOUCH_MIDDLE to get APP_GESTURE_HOLD for the middle, 0 to stop (the default: a slow press is a
+  // tap). Other bits: APP_EINVAL. The long press (exit) is unchanged
+  int (*touch_hold)(uint32_t zones);
 } app_api_t;
 
 #ifdef __cplusplus
@@ -404,8 +437,11 @@ APP_API_ASSERT(offsetof(app_api_t, battery_percent) == APP_API_SLOT(32), "API 2:
 APP_API_ASSERT(offsetof(app_api_t, event_log_lines) == APP_API_SLOT(34), "API 2.1: the event log after API 2");
 APP_API_ASSERT(offsetof(app_api_t, screen_orientation) == APP_API_SLOT(35), "API 2.2: orientation after the event log");
 APP_API_ASSERT(offsetof(app_api_t, webshare_start_files) == APP_API_SLOT(36), "API 2.3: the files profile after orientation");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(37), "API 2.3 has 37 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(offsetof(app_api_t, espnow_start) == APP_API_SLOT(37), "API 2.4: ESP-NOW after the files profile");
+APP_API_ASSERT(offsetof(app_api_t, touch_hold) == APP_API_SLOT(40), "API 2.4: then the touch hold");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(41), "API 2.4 has 41 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(sizeof(app_espnow_pkt_t) == 258, "app_espnow_pkt_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 3, "a new version adds its own size check above");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 4, "a new version adds its own size check above");
 
 #endif // APP_API_H

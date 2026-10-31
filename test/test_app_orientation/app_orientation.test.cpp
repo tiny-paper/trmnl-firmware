@@ -25,8 +25,10 @@ void test_square_panel_is_never_portrait() { TEST_ASSERT_EQUAL(APP_ORIENT_LANDSC
 void test_the_call_stays_in_its_slot_when_the_table_grows() {
   TEST_ASSERT_EQUAL(APP_API_SLOT(35), offsetof(app_api_t, screen_orientation));
   TEST_ASSERT_EQUAL(APP_API_SLOT(36), offsetof(app_api_t, webshare_start_files)); // 2.3 (the Wi-Fi page's files profile)
-  TEST_ASSERT_EQUAL(APP_API_SLOT(37), sizeof(app_api_t));
-  TEST_ASSERT_EQUAL(3, APP_API_MINOR);
+  TEST_ASSERT_EQUAL(APP_API_SLOT(37), offsetof(app_api_t, espnow_start)); // 2.4 (ESP-NOW, touch hold)
+  TEST_ASSERT_EQUAL(APP_API_SLOT(40), offsetof(app_api_t, touch_hold));
+  TEST_ASSERT_EQUAL(APP_API_SLOT(41), sizeof(app_api_t));
+  TEST_ASSERT_EQUAL(4, APP_API_MINOR);
 }
 
 int main(int, char **) {

@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <iqs323_task.h>
+#include <touch_hold.h>
 #include <touch_inject.h>
 #include <touchbar_input.h>
 #include <trmnl_log.h>
@@ -15,6 +16,9 @@ typedef struct {
 
 static touch_state_t touch[3];
 static const char *consumer_name = "none";
+static volatile uint32_t hold_zones; // set from the app's task, read by the runner's loop
+
+void touchbar_input_set_hold(uint32_t zones) { hold_zones = zones; }
 
 const char *touch_gesture_str(touch_gesture_t g) {
   switch (g) {
@@ -24,6 +28,8 @@ const char *touch_gesture_str(touch_gesture_t g) {
     return "tap";
   case touch_gesture_t::LONG:
     return "long press";
+  case touch_gesture_t::HOLD:
+    return "hold";
   }
   return "?";
 }
@@ -44,6 +50,7 @@ void touchbar_input_begin(const char *consumer) {
 void touchbar_input_end(void) {
   iqs323_task_set_streaming_mode(false);
   consumer_name = "none";
+  hold_zones = 0;
 }
 
 static void add(touch_event_t *out, int *n, int ch, touch_gesture_t g, uint32_t ms) {
@@ -74,7 +81,7 @@ int touchbar_input_poll(touch_event_t *out) {
       continue;
     }
     // released (or a tap too short for the snapshot to show it down)
-    if (!t.long_press) add(out, &n, ch, touch_gesture_t::TAP, now - t.since);
+    if (!t.long_press) add(out, &n, ch, (touch_gesture_t)touch_release_gesture(ch, now - t.since, hold_zones), now - t.since);
     t.down = false;
   }
   // presses from the Install via Wi-Fi page: the same events as the touch bar's (touch_inject.h)

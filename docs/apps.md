@@ -29,6 +29,8 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | event log (API 2.1) | `event_log_lines(buf, len, n)`: the last n lines of the "Event log", oldest first; check `api->size >= APP_API_SLOT(35)` first (`APP_API_MINOR`) |
 | orientation (API 2.2) | `screen_orientation()`: `APP_ORIENT_LANDSCAPE` or `APP_ORIENT_PORTRAIT` as TRMNL shows its screens, from its last image (TRMNL keeps no setting on the device: the server sends portrait as an image with the sides swapped); `APP_ENOENT` before the first image since a cold start. The framebuffer stays landscape: a portrait app draws its (x, y) at (y, height - 1 - x). Check `api->size >= APP_API_SLOT(36)` first |
 | files page (API 2.3) | `webshare_start_files(mode, &{dir, exts, max_bytes})`: the Wi-Fi page for the app's own files, see "Files profile" below; `webshare_stop` and `webshare_status` as before. Check `api->size >= APP_API_SLOT(37)` first |
+| ESP-NOW (API 2.4) | `espnow_start(mac, channel)`, `espnow_recv(&pkt)` (1, or 0 when none waits; never blocks), `espnow_stop()` (frames dropped): receive only, see "ESP-NOW" below. Check `api->size >= APP_API_SLOT(40)` first |
+| touch hold (API 2.4) | `touch_hold(1 << APP_TOUCH_MIDDLE)`: a middle press released after 600 ms and before the long press (1.5 s, exit as before) comes as `APP_GESTURE_HOLD` instead of a tap; 0 stops it, the app's end too. Check `api->size >= APP_API_SLOT(41)` first |
 
 Errors are negative `APP_E*` values.
 
@@ -160,6 +162,19 @@ An app takes its own files over Wi-Fi (the Game Boy app: `.gb` / `.gbc` ROMs). `
 | Delete | only a listed file (extension and name rules), only after the phone's confirm; never a save, the temporary file or a folder |
 | Messages | name or type: "name or type not allowed; only .gb .gbc"; size; full disk "not enough space" |
 | Old firmware | `api->size < APP_API_SLOT(37)`: the call is not there, the app says so and carries on |
+
+## ESP-NOW (API 2.4)
+
+Receive only, for the ELRS TX backpack's telemetry (the FPV app). Glue `src/espnow_app.cpp`, rules `lib/trmnl/include/espnow_rx.h` (test `test_espnow_rx`).
+
+| | |
+|---|---|
+| start | the station MAC becomes `mac` with bit 0 of byte 0 cleared (the backpack's UID rule), protocol 11b/g/n + LR, modem sleep off, `channel` 1..13, `esp_now_init`, one receive callback; no peer (none is needed to receive). The MAC is never logged (it is the bind UID) |
+| refused (`APP_EBUSY`) | while the Wi-Fi page runs, the station is on a network (`net_up`, `http_request`), the Bluetooth keyboard's radio is on, or ESP-NOW already runs. While it runs: `net_up` fails, `webshare_start`, `webshare_start_files` and `keyboard_enable(APP_KBD_BLE)` return `APP_EBUSY` |
+| queue | 64 frames in PSRAM (16.5 KB, allocated at the first start and kept until restart); a full queue or a frame over 250 bytes is dropped and counted |
+| stop | callback off, `esp_now_deinit`, the eFuse MAC and the old protocol back, Wi-Fi off. The runner calls it when the app ends, whatever the reason; a crash or a restart needs nothing: MAC and protocol live in the driver's RAM only |
+| event log | `ESP-NOW: on, channel N (receive only)`, `ESP-NOW: refused, the radio is held by <who>`, `ESP-NOW: N frames dropped (queue full or too long)` (at most every 10 s), `ESP-NOW: off, channel N, N frames, N dropped`, `ESP-NOW: start failed at <step> (0x<esp_err>)`, `Net: refused, ESP-NOW holds the radio` |
+| not checked on a device | whether `esp_wifi_set_mac` takes the MAC with the station started (else it stops, sets, starts), frames from a real backpack |
 
 ## Configuration
 

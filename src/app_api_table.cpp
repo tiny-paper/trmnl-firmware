@@ -31,6 +31,8 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509.h>
 #include <radio_share.h>
+#include <touch_hold.h>
+#include <touchbar_input.h>
 #include <stdarg.h>
 #include <sys/time.h>
 #include <trmnl_log.h>
@@ -38,6 +40,7 @@
 
 #include "app_host.h"
 #include "displayed_image.h"
+#include "espnow_app.h"
 #include "ble_keyboard.h"
 #include "evlog.h"
 #include "keyboards.h"
@@ -258,6 +261,10 @@ static int file_mkdir(const char *path) {
 
 // One log line per call (radio_share.h): the device log says why an app saw "no network"
 static bool net_up(void) {
+  if (radio_claim_check(espnow_app_radio_users(), RADIO_WANT_NET)) {
+    Log_event("Net: refused, ESP-NOW holds the radio (espnow_stop first)");
+    return false;
+  }
   uint32_t t0 = millis();
   bool ble = ble_keyboard_radio_on();
   net_up_state_t s = {WiFi.status() == WL_CONNECTED, false, false};
@@ -417,6 +424,29 @@ static int screen_orientation(void) {
   return app_orientation(DisplayedImage::width(), DisplayedImage::height(), bbep.width(), bbep.height());
 }
 
+// ---- the radio's other users while ESP-NOW runs (espnow_rx.h radio_claim_check) ----
+
+static int app_webshare_start(app_webshare_mode_t mode) {
+  if (radio_claim_check(espnow_app_radio_users(), RADIO_WANT_WEBSHARE)) return APP_EBUSY;
+  return webshare_start(mode);
+}
+
+static int app_webshare_start_files(app_webshare_mode_t mode, const app_webshare_files_t *files) {
+  if (radio_claim_check(espnow_app_radio_users(), RADIO_WANT_WEBSHARE)) return APP_EBUSY;
+  return webshare_start_files(mode, files);
+}
+
+static int app_keyboard_enable(uint32_t sources) {
+  if ((sources & APP_KBD_BLE) && radio_claim_check(espnow_app_radio_users(), RADIO_WANT_BLE)) return APP_EBUSY;
+  return keyboards_enable(sources);
+}
+
+static int touch_hold(uint32_t zones) {
+  if (zones & ~(uint32_t)TOUCH_HOLD_ZONES) return APP_EINVAL;
+  touchbar_input_set_hold(zones);
+  return 0;
+}
+
 static const app_api_t table = {
     APP_API_VERSION, sizeof(app_api_t),
     screen_width,    screen_height,
@@ -431,14 +461,16 @@ static const app_api_t table = {
     app_log,         net_up,
     http_request,    setting_get,
     setting_set,     app_exit,
-    keyboards_enable, keyboards_status,
+    app_keyboard_enable, keyboards_status,
     usb_drive_start, usb_drive_state,
     usb_drive_stop,
-    webshare_start,  webshare_stop,
+    app_webshare_start, webshare_stop,
     webshare_status,
     battery_percent, local_time,
     evlog_tail,      screen_orientation,
-    webshare_start_files,
+    app_webshare_start_files,
+    espnow_app_start, espnow_app_recv,
+    espnow_app_stop, touch_hold,
 };
 
 const app_api_t *app_api_table(void) {

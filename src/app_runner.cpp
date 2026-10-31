@@ -31,6 +31,7 @@
 #include "app_host.h"
 #include "ble_keyboard.h"
 #include "evlog.h"
+#include "espnow_app.h"
 #include "evlog_crash.h"
 #include "keyboards.h"
 #include "usb_drive.h"
@@ -110,12 +111,12 @@ static void post(const app_event_t &ev) {
   if (xQueueSend(app_host.events, &ev, 0) != pdTRUE) Log_info("Apps: event queue full, event dropped");
 }
 
-static void post_tap(int channel) {
+static void post_tap(int channel, uint8_t gesture) {
   if (ble_keyboard_tap(channel)) return; // the Bluetooth pairing screen's
   app_event_t ev = {};
   ev.type = APP_EVENT_TOUCH;
   ev.zone = (uint8_t)channel;
-  ev.gesture = APP_GESTURE_TAP;
+  ev.gesture = gesture;
   post(ev);
 }
 
@@ -125,7 +126,8 @@ static bool pump_touch(void) {
   int n = touchbar_input_poll(evs);
   bool long_press = false;
   for (int i = 0; i < n; i++) {
-    if (evs[i].gesture == touch_gesture_t::TAP) post_tap(evs[i].channel);
+    if (evs[i].gesture == touch_gesture_t::TAP) post_tap(evs[i].channel, APP_GESTURE_TAP);
+    if (evs[i].gesture == touch_gesture_t::HOLD) post_tap(evs[i].channel, APP_GESTURE_HOLD); // only after touch_hold
     if (evs[i].gesture == touch_gesture_t::LONG) long_press = true;
   }
   return long_press;
@@ -326,6 +328,7 @@ void apps_run(const char *path) {
   usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
   touchbar_input_end();
   webshare_stop(); // the page never outlives the app
+  espnow_app_stop(); // nor ESP-NOW: the original MAC back, the radio off (a crash restarts with the eFuse MAC)
   app_host_close_files();
   esp_elf_deinit(&elf);
   vQueueDelete(app_host.events);
