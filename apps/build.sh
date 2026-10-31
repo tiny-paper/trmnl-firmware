@@ -14,6 +14,12 @@ cc=$tc/xtensa-esp32s3-elf-gcc
 strip=$tc/xtensa-esp32s3-elf-strip
 out=${OUT:-$here/build}
 mkdir -p "$out"
+# What the X's loader resolves: elf_loader's export table plus src/app_heap.cpp's allocators
+symtab=$here/../managed_components/espressif__elf_loader/src/esp_elf_symbol.c
+[ -f "$symtab" ] || { echo "no $symtab: run pio run -e TRMNL_X once" >&2; exit 1; }
+allowed=$(mktemp)
+trap 'rm -f "$allowed"' EXIT
+{ sed -n 's/.*ESP_ELFSYM_EXPORT(\([A-Za-z0-9_]*\)).*/\1/p' "$symtab"; printf 'malloc\ncalloc\nrealloc\n'; } > "$allowed"
 # every folder with C sources, but build/ and common/ (not __pycache__ and such)
 apps=${*:-$(cd "$here" && for d in */; do d=${d%/}; ls "$d"/*.c >/dev/null 2>&1 && echo "$d"; done |
   grep -v -e '^build$' -e '^common$')}
@@ -35,5 +41,14 @@ for app in $apps; do
     "$dir"/*.c $extra -o "$out/$name.elf" -lgcc
   "$strip" --strip-unneeded --remove-section=.comment --remove-section=.got.loc --remove-section=.dynamic \
     --remove-section=.xt.lit --remove-section=.xt.prop --remove-section=.xtensa.info "$out/$name.elf"
+  # Every import must be in the loader's table, else the X refuses the app at start ("needs a function the
+  # firmware lacks"; device 2026-10-31: the FPV app's compiler-made memmove call)
+  missing=$("$tc/xtensa-esp32s3-elf-nm" -D --undefined-only "$out/$name.elf" | awk '{print $2}' |
+    grep -v -x -F -f "$allowed" || true)
+  if [ -n "$missing" ]; then
+    rm -f "$out/$name.elf"
+    echo "$name: the X's loader has no $(echo $missing | sed 's/ /, /g') (allowed: elf_loader's esp_elf_symbol.c, src/app_heap.cpp)" >&2
+    exit 1
+  fi
   echo "built $out/$name.elf ($(wc -c < "$out/$name.elf") bytes)"
 done
