@@ -36,7 +36,9 @@
 static char base_dir[48]; // the writer's folder; the install profile uses the root (ctx "")
 
 static bool full(void *ctx, const char *rel, char *out, size_t len) {
-  return snprintf(out, len, "%s/%s", (const char *)ctx, rel) < (int)len;
+  const char *base = (const char *)ctx;
+  if (!rel[0]) return snprintf(out, len, "%s", base[0] ? base : "/") < (int)len; // the folder itself
+  return snprintf(out, len, "%s/%s", base, rel) < (int)len;
 }
 
 static int fs_stat(void *c, const char *path, uint32_t *size, bool *is_dir) {
@@ -125,6 +127,8 @@ static const ws_fs_t FS_ROOT = {(void *)"", fs_stat, fs_open, fs_read, fs_write,
                                 fs_mkdir, fs_list, fs_free, fs_mtime};
 
 const ws_fs_t *webshare_fs_root(void) { return &FS_ROOT; }
+const ws_fs_t *webshare_fs_app(void) { return &FS; }
+uint64_t webshare_free_bytes(void) { return fs_free(nullptr); }
 
 // ---- state ----
 
@@ -170,6 +174,10 @@ static bool guard(AsyncWebServerRequest *r, bool changes, bool reply = true) {
   }
   S.last_request = millis();
   return true;
+}
+
+bool webshare_authorized(AsyncWebServerRequest *r, bool changes) {
+  return S.install ? webshare_install_allowed(r) : guard(r, changes, false);
 }
 
 String param(AsyncWebServerRequest *r, const char *name, bool post) {
@@ -322,12 +330,13 @@ void webshare_feed_upload(AsyncWebServerRequest *r, const char *name, uint8_t *d
     q = (up_req_t *)calloc(1, sizeof(up_req_t));
     r->_tempObject = q;
     if (!q) return;
-    if (S.install ? !webshare_install_allowed(r) : !guard(r, true, false)) {
+    if (!webshare_authorized(r, true)) {
       q->unauth = true;
       return;
     }
     xSemaphoreTake(S.lock, portMAX_DELAY);
     q->rc = S.install ? ws_apps_begin(&upload, &FS_ROOT, name, (uint32_t)total)
+            : S.files ? ws_files_begin(&upload, &FS, &files_cfg, name, (uint32_t)total)
                       : ws_upload_begin(&upload, &FS, name, (uint32_t)total);
     q->began = q->rc == WS_OK;
     if (q->began) {
@@ -469,13 +478,16 @@ static void add_routes(AsyncWebServer &server) {
         return r->send(go);
       }
     }
-    AsyncWebServerResponse *res = r->beginResponse(200, "text/html; charset=utf-8", S.install ? webshare_install_page() : WEBSHARE_PAGE);
+    AsyncWebServerResponse *res = r->beginResponse(
+        200, "text/html; charset=utf-8",
+        S.install ? webshare_install_page() : S.files ? webshare_files_page() : WEBSHARE_PAGE);
     res->addHeader("Cache-Control", "no-store");
     r->send(res);
   });
   server.on("/api/login", HTTP_POST, handle_login);
-  if (S.install) {
-    webshare_install_routes(server);
+  if (S.install || S.files) {
+    if (S.install) webshare_install_routes(server);
+    else webshare_files_routes(server);
     server.onNotFound([](AsyncWebServerRequest *r) {
       if (S.mode == APP_WEBSHARE_AP) r->redirect(WS_AP_URL);
       else r->send(404);
@@ -494,7 +506,8 @@ static void add_routes(AsyncWebServer &server) {
   });
 }
 
-static int start_common(app_webshare_mode_t requested, bool install) {
+int webshare_start_profile(app_webshare_mode_t requested, int profile) {
+  bool install = profile == WS_PROFILE_INSTALL;
   if (requested != APP_WEBSHARE_AUTO && requested != APP_WEBSHARE_AP && requested != APP_WEBSHARE_HOME) {
     return APP_EINVAL;
   }
@@ -508,6 +521,7 @@ static int start_common(app_webshare_mode_t requested, bool install) {
 
   xSemaphoreTake(S.lock, portMAX_DELAY);
   S.install = install;
+  S.files = profile == WS_PROFILE_FILES;
   if (install) { // the file system root, the apps folder
     LittleFS.mkdir(APPS_DIR);
     ws_apps_cleanup(&FS_ROOT);
@@ -515,7 +529,8 @@ static int start_common(app_webshare_mode_t requested, bool install) {
     snprintf(base_dir, sizeof(base_dir), "%s", app_host.dir);
     LittleFS.mkdir(APPS_DATA_DIR);
     LittleFS.mkdir(base_dir);
-    ws_store_cleanup(&FS); // temporary files a power loss left
+    if (S.files) ws_files_cleanup(&FS, &files_cfg); // a temporary file a power loss left
+    else ws_store_cleanup(&FS);
   }
   memset(&S.auth, 0, sizeof(S.auth));
   ws_auth_init(&S.auth, esp_random());
@@ -568,8 +583,8 @@ static int start_common(app_webshare_mode_t requested, bool install) {
   return rc;
 }
 
-int webshare_start(app_webshare_mode_t requested) { return start_common(requested, false); }
-int webshare_start_install(void) { return start_common(APP_WEBSHARE_AUTO, true); }
+int webshare_start(app_webshare_mode_t requested) { return webshare_start_profile(requested, WS_PROFILE_WRITER); }
+int webshare_start_install(void) { return webshare_start_profile(APP_WEBSHARE_AUTO, WS_PROFILE_INSTALL); }
 
 int webshare_status(app_webshare_status_t *st) {
   if (!st) return APP_EINVAL;

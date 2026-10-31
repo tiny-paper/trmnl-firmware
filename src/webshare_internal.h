@@ -9,6 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <webshare_auth.h>
+#include <webshare_files.h>
 #include <webshare_store.h>
 
 #include "webshare.h"
@@ -16,6 +17,7 @@
 struct webshare_state_t {
   bool running;
   bool install; // the apps profile
+  bool files; // the files profile (API 2.3); neither: the writer's
   bool watch_alive;
   app_webshare_mode_t mode;
   ws_auth_t auth;
@@ -25,7 +27,9 @@ struct webshare_state_t {
   SemaphoreHandle_t lock; // start/stop and the upload state; handlers run in the async_tcp task
   char network[33], address[40], ip[16], url[32];
 };
+enum { WS_PROFILE_WRITER, WS_PROFILE_INSTALL, WS_PROFILE_FILES };
 extern webshare_state_t S;
+extern ws_files_cfg_t files_cfg; // the files profile's settings, set while the page is down (webshare_files.cpp)
 extern ws_upload_t upload;
 extern const void *upload_owner; // the request that began `upload`
 extern uint32_t upload_last_chunk;
@@ -49,6 +53,20 @@ String session_cookie(AsyncWebServerRequest *r);
 // /apps). `name`: the document path, or the app's file name. `exact`: `total` is the real byte count.
 void webshare_feed_upload(AsyncWebServerRequest *r, const char *name, uint8_t *data, size_t len, size_t index,
                           size_t total, bool last, bool exact);
+
+// Starts the page in a profile (webshare.cpp): the three public starts are this
+int webshare_start_profile(app_webshare_mode_t requested, int profile);
+// May this request use the profile's API: install: cookie plus X-Writer, ?t= or ?code=; others: cookie, plus X-Writer
+// when `changes`. Refreshes the idle timer.
+bool webshare_authorized(AsyncWebServerRequest *r, bool changes);
+const ws_fs_t *webshare_fs_app(void); // the running app's folder
+uint64_t webshare_free_bytes(void);
+// A button of the page: left, middle, right, long or stop (= long press); the touch bar's path (touch_inject.h)
+void webshare_handle_touch(AsyncWebServerRequest *r);
+
+// The files profile (webshare_files.cpp)
+void webshare_files_routes(AsyncWebServer &server);
+const char *webshare_files_page(void);
 
 // The apps profile (webshare_install.cpp)
 void webshare_install_routes(AsyncWebServer &server);

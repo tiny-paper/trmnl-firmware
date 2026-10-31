@@ -438,6 +438,7 @@ static const app_api_t table = {
     webshare_status,
     battery_percent, local_time,
     evlog_tail,      screen_orientation,
+    webshare_start_files,
 };
 
 const app_api_t *app_api_table(void) {

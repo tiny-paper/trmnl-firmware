@@ -110,9 +110,8 @@ static void handle_app_done(AsyncWebServerRequest *r) {
   send_json(r, 200, s);
 }
 
-// A button of the page: left, middle, right, long or stop (= long press); the touch bar's path (touch_inject.h)
-static void handle_touch(AsyncWebServerRequest *r) {
-  if (!webshare_install_allowed(r)) return send_error(r, 401, "type the code first");
+void webshare_handle_touch(AsyncWebServerRequest *r) {
+  if (!webshare_authorized(r, true)) return send_error(r, 401, "type the code first");
   String b = param(r, "b", true);
   if (!touch_inject_button(b.c_str())) return send_error(r, 400, "unknown button or queue full");
   Log_info("webshare: page button %s", b.c_str());
@@ -120,7 +119,7 @@ static void handle_touch(AsyncWebServerRequest *r) {
 }
 
 void webshare_install_routes(AsyncWebServer &server) {
-  server.on("/api/touch", HTTP_POST, handle_touch);
+  server.on("/api/touch", HTTP_POST, webshare_handle_touch);
   server.on("/api/apps", HTTP_GET, handle_apps);
   server.on("/api/appdelete", HTTP_POST, handle_app_delete);
   // the page: the raw file as the body, its name in ?name=

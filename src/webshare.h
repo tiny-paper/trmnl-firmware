@@ -7,6 +7,7 @@
 
 int webshare_start(app_webshare_mode_t mode);
 void webshare_stop(void); // safe when not running, from any task except the page's own
+int webshare_start_files(app_webshare_mode_t mode, const app_webshare_files_t *files); // API 2.3, webshare_files.cpp
 int webshare_status(app_webshare_status_t *st);
 
 // The apps profile for the menu's "Install via Wi-Fi" (webshare_install.cpp): the same server and login, listing and

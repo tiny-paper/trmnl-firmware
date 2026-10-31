@@ -22,10 +22,11 @@ void test_other_size_is_unknown() {
 
 void test_square_panel_is_never_portrait() { TEST_ASSERT_EQUAL(APP_ORIENT_LANDSCAPE, app_orientation(800, 800, 800, 800)); }
 
-void test_the_call_is_at_the_end_of_the_table() {
+void test_the_call_stays_in_its_slot_when_the_table_grows() {
   TEST_ASSERT_EQUAL(APP_API_SLOT(35), offsetof(app_api_t, screen_orientation));
-  TEST_ASSERT_EQUAL(APP_API_SLOT(36), sizeof(app_api_t));
-  TEST_ASSERT_EQUAL(2, APP_API_MINOR);
+  TEST_ASSERT_EQUAL(APP_API_SLOT(36), offsetof(app_api_t, webshare_start_files)); // 2.3 (the Wi-Fi page's files profile)
+  TEST_ASSERT_EQUAL(APP_API_SLOT(37), sizeof(app_api_t));
+  TEST_ASSERT_EQUAL(3, APP_API_MINOR);
 }
 
 int main(int, char **) {
@@ -35,6 +36,6 @@ int main(int, char **) {
   RUN_TEST(test_no_image_yet_is_unknown);
   RUN_TEST(test_other_size_is_unknown);
   RUN_TEST(test_square_panel_is_never_portrait);
-  RUN_TEST(test_the_call_is_at_the_end_of_the_table);
+  RUN_TEST(test_the_call_stays_in_its_slot_when_the_table_grows);
   return UNITY_END();
 }

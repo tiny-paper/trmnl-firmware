@@ -28,6 +28,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | battery, time (API 2) | `battery_percent(&charging)`: the fuel gauge's percent at the last wake (APP_EIO unreadable), charging now; `local_time(&t)`: the clock in the X's time zone (NVS `app_tz`, a POSIX TZ string). TRMNL's firmware keeps no time zone today: until one is stored the fields are UTC with `zone_known` 0; APP_ENOCLOCK before the clock was set |
 | event log (API 2.1) | `event_log_lines(buf, len, n)`: the last n lines of the "Event log", oldest first; check `api->size >= APP_API_SLOT(35)` first (`APP_API_MINOR`) |
 | orientation (API 2.2) | `screen_orientation()`: `APP_ORIENT_LANDSCAPE` or `APP_ORIENT_PORTRAIT` as TRMNL shows its screens, from its last image (TRMNL keeps no setting on the device: the server sends portrait as an image with the sides swapped); `APP_ENOENT` before the first image since a cold start. The framebuffer stays landscape: a portrait app draws its (x, y) at (y, height - 1 - x). Check `api->size >= APP_API_SLOT(36)` first |
+| files page (API 2.3) | `webshare_start_files(mode, &{dir, exts, max_bytes})`: the Wi-Fi page for the app's own files, see "Files profile" below; `webshare_stop` and `webshare_status` as before. Check `api->size >= APP_API_SLOT(37)` first |
 
 Errors are negative `APP_E*` values.
 
@@ -145,6 +146,20 @@ Names, limits and times below are the defaults of "Configuration".
 | No silent overwrite | upload to `.webshare.tmp` in the target folder, renamed when all announced bytes arrived and the file on disk has that size; same bytes: nothing written; other bytes: saved as `title (web N).md`, the old file untouched; rename onto an existing name is refused |
 | Limits | document 1 MB, font 4 MB, 32 KB of the file system stays free, one upload at a time, 30 s without data drops it, leftover temp files are removed at start |
 | Zip | stored, made while sending (no copy in memory), up to 128 documents; a read error cuts the connection |
+
+### Files profile (API 2.3)
+
+An app takes its own files over Wi-Fi (the Game Boy app: `.gb` / `.gbc` ROMs). `webshare_start_files(mode, &opt)` starts the same server, login and code as above, but the page lists, adds and deletes only the app's files of one folder. Logic in `lib/trmnl/src/webshare_files.cpp`, routes and page in `src/webshare_files.cpp`, `src/webshare_files_page.h` (the touch bar buttons are on it).
+
+| Option | Rule |
+|---|---|
+| `dir` | inside `/appdata/<app>/`: `""` (the folder itself), `"roms"` or `"a/b"` (two names at most; `..`, a leading slash, an empty part, a leading dot refused: `APP_EINVAL`) |
+| `exts` | comma separated with the dot, `".gb,.gbc"`: at most 8, letters and digits, any case; a file needs a name before the extension |
+| `max_bytes` | 1 .. 32 MB; a bigger file is refused before a byte is written ("file too big (largest N KB)") |
+| Same rules as the writer page | temporary file renamed when complete, free-space reserve (`WS_FREE_MARGIN`), no silent overwrite (other bytes under a taken name: `name (web 1).gb`; same bytes: nothing written), one upload at a time, code login and `X-Writer` header for changes |
+| Delete | only a listed file (extension and name rules), only after the phone's confirm; never a save, the temporary file or a folder |
+| Messages | name or type: "name or type not allowed; only .gb .gbc"; size; full disk "not enough space" |
+| Old firmware | `api->size < APP_API_SLOT(37)`: the call is not there, the app says so and carries on |
 
 ## Configuration
 
@@ -307,6 +322,7 @@ status: the switch can take the window of a touch event, and that touch then nev
 | paths, resume state, serial keys | `test/test_app_path`, `test_app_resume`, `test_app_keys` | `pio test -e native -f test_app_*` |
 | Install via Wi-Fi: only .elf, checker refusal, size limit, .bak kept and restored on a failed or crashed first start, token/code needed | `test/test_webshare_apps` | `pio test -e native -f test_webshare_apps` |
 | Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
+| Files profile: folder and extension rules, too big, `../` tricks, full disk, same name, delete limits | `test/test_webshare_files` | `pio test -e native -f test_webshare_files` |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
 `$TRMNLSIM_DIR`), then `python3 -m venv .venv && .venv/bin/pip install pytest littlefs-python pillow` and

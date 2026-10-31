@@ -23,7 +23,7 @@ extern "C" {
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
 // Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
-#define APP_API_MINOR 2 // 2.1: event_log_lines; 2.2: screen_orientation
+#define APP_API_MINOR 3 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files
 
 // ---- app header ----
 
@@ -238,6 +238,16 @@ typedef struct {
   int32_t locked; // 0 usable; 1 too many wrong codes, locked for a while; 2 too many in all: stopped (start again)
 } app_webshare_status_t;
 
+// The "files" profile of the Wi-Fi page (API 2.3, webshare_start_files): the page lists, adds and deletes the app's own
+// files of one folder instead of documents and fonts. Only files whose name ends in one of `exts` are listed or
+// taken, none over `max_bytes`; the same rules as above (temporary file, free-space reserve, nothing overwritten, the
+// 6-digit code, delete only after the phone's confirm). The page also has the touch bar's buttons.
+typedef struct {
+  const char *dir; // inside the app's folder: "" (the folder itself), "roms" or "a/b" (two names at most, no "..")
+  const char *exts; // comma separated, with the dot, e.g. ".gb,.gbc" (at most 8, letters and digits, any case)
+  uint32_t max_bytes; // the largest file, 1 .. 33554432
+} app_webshare_files_t;
+
 // ---- local time (API 2) ----
 
 typedef struct {
@@ -360,6 +370,13 @@ typedef struct app_api {
   // as an image with the sides swapped): APP_ORIENT_LANDSCAPE, APP_ORIENT_PORTRAIT, or APP_ENOENT when no TRMNL image
   // was drawn since the last cold start
   int (*screen_orientation)(void);
+
+  // ---- API 2.3 (api->size >= APP_API_SLOT(37)) ----
+
+  // webshare_start for the files profile (app_webshare_files_t above); webshare_stop and webshare_status work as for the
+  // writer page. Returns what webshare_start does, APP_EINVAL also for files that are NULL or not valid. The strings are
+  // copied
+  int (*webshare_start_files)(app_webshare_mode_t mode, const app_webshare_files_t *files);
 } app_api_t;
 
 #ifdef __cplusplus
@@ -386,8 +403,9 @@ APP_API_ASSERT(offsetof(app_api_t, webshare_start) == APP_API_SLOT(29), "API 2: 
 APP_API_ASSERT(offsetof(app_api_t, battery_percent) == APP_API_SLOT(32), "API 2: then battery and local time");
 APP_API_ASSERT(offsetof(app_api_t, event_log_lines) == APP_API_SLOT(34), "API 2.1: the event log after API 2");
 APP_API_ASSERT(offsetof(app_api_t, screen_orientation) == APP_API_SLOT(35), "API 2.2: orientation after the event log");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(36), "API 2.2 has 36 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(offsetof(app_api_t, webshare_start_files) == APP_API_SLOT(36), "API 2.3: the files profile after orientation");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(37), "API 2.3 has 37 calls: a new one raises APP_API_MINOR");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 2, "a new version adds its own size check above");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 3, "a new version adds its own size check above");
 
 #endif // APP_API_H
