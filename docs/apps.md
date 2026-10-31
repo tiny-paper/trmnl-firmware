@@ -31,6 +31,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | files page (API 2.3) | `webshare_start_files(mode, &{dir, exts, max_bytes})`: the Wi-Fi page for the app's own files, see "Files profile" below; `webshare_stop` and `webshare_status` as before. Check `api->size >= APP_API_SLOT(37)` first |
 | ESP-NOW (API 2.4) | `espnow_start(mac, channel)`, `espnow_recv(&pkt)` (1, or 0 when none waits; never blocks), `espnow_stop()` (frames dropped): receive only, see "ESP-NOW" below. Check `api->size >= APP_API_SLOT(40)` first |
 | touch hold (API 2.4) | `touch_hold(1 << APP_TOUCH_MIDDLE)`: a middle press released after 600 ms and before the long press (1.5 s, exit as before) comes as `APP_GESTURE_HOLD` instead of a tap; 0 stops it, the app's end too. Check `api->size >= APP_API_SLOT(41)` first |
+| position (API 2.5) | `device_orientation()`, `orientation_follow(on, settle_ms)`, `touchbar_layout(o, &bar)`, `APP_EVENT_ORIENTATION`: the X's position from its accelerometer, see "Touch bar and position" below. Check `api->size >= APP_API_SLOT(44)` first |
 
 Errors are negative `APP_E*` values.
 
@@ -175,6 +176,22 @@ Receive only, for the ELRS TX backpack's telemetry (the FPV app). Glue `src/espn
 | stop | callback off, `esp_now_deinit`, the eFuse MAC and the old protocol back, Wi-Fi off. The runner calls it when the app ends, whatever the reason; a crash or a restart needs nothing: MAC and protocol live in the driver's RAM only |
 | event log | `ESP-NOW: on, channel N (receive only)`, `ESP-NOW: refused, the radio is held by <who>`, `ESP-NOW: N frames dropped (queue full or too long)` (at most every 10 s), `ESP-NOW: off, channel N, N frames, N dropped`, `ESP-NOW: start failed at <step> (0x<esp_err>)`, `Net: refused, ESP-NOW holds the radio` |
 | not checked on a device | whether `esp_wifi_set_mac` takes the MAC with the station started (else it stops, sets, starts), frames from a real backpack |
+
+## Touch bar and position (API 2.5)
+
+| | |
+|---|---|
+| bar | an IQS323 with 3 channels along the panel's long bottom edge in its own frame (rotation 0, 1872 x 1404): channel 0 under the left third, 1 the middle, 2 the right (`touchbar_gesture.cpp`, `touchbar_indicator.cpp`: centres at 1/6, 1/2, 5/6 of the width). Not measured: where each electrode ends; the firmware takes thirds |
+| positions | `APP_ORIENT_BAR_BOTTOM` 0 (landscape, = `APP_ORIENT_LANDSCAPE`), `BAR_LEFT` 1 (portrait, = `APP_ORIENT_PORTRAIT`, FastEPD rotation 90), `BAR_TOP` 2 (180), `BAR_RIGHT` 3 (270). An app in position o draws its (x, y) at `app_orient_to_fb(o, W, H, x, y, ..)` (app_api.h); its screen is W x H in 0 and 2, H x W in 1 and 3 |
+| sensor | BMA530, code from TRMNL's `feature/accelerometer_logic` (0bd8762): angle atan2(-ay, ax) + 45 degrees (die mount), sectors as TRMNL's (LANDSCAPE_RIGHT = rotation 0); flat when tilted less than about 38 degrees. Read every 100 ms while an app runs, brought up once per wake at the first app start; 20 failed reads in a row: off until the next wake (log `Orientation: ...`) |
+| decision | `lib/trmnl/src/orient_sense.cpp`: a new position counts once every sample gave it for the settle time (default `APP_ORIENT_SETTLE_MS` 1000, up to 10000); 15 degrees past a sector's edge before leaving it; flat or a failed read keeps the last and restarts the wait; the first reading counts at once |
+| `device_orientation()` | the steady position; without a reading TRMNL's from its last image (portrait as BAR_LEFT), else BAR_BOTTOM |
+| `screen_orientation()` (2.2) | unchanged values: the sensor's position as LANDSCAPE (bottom, top) or PORTRAIT (left, right) once it has one, else TRMNL's image as before |
+| `orientation_follow(true, ms)` | the app says it draws in `device_orientation()`'s position: touch zones come in the user's frame (APP_TOUCH_LEFT is the zone on the user's left; in portrait the top one; the middle stays the middle) and `APP_EVENT_ORIENTATION` (`key` = new position) comes on each change. Off (default, and old apps): the panel's own zones, no events |
+| `touchbar_layout(o, &bar)` | `app_touchbar_t`: the app's screen size in o, the edge the bar lies along (`APP_EDGE_*`, same numbers as the positions), `zone[3]` by `app_touch_zone_t` as strips `APP_TOUCHBAR_DEPTH` (160) deep along that edge, in o's app coordinates: draw each hint inside or next to its strip |
+| firmware hints | `hints_draw` puts its pills next to the bar's zones in bbep's rotation (`touchbar_hint_box`); the firmware screens (pairing, Install via Wi-Fi, Receive over USB) stay in rotation 0: not turned in this version (Install's large text reads the buffer in the panel's frame; the pairing text is wider than a portrait screen) |
+| picture | `tools/touchbar_render/render.sh <dir>`: the zones and hint boxes in the four positions as the user sees them |
+| not checked on a device | the sector names against the real X (TRMNL's mapping, said to be checked by them), the read rate's cost on battery, the bar's electrode ends |
 
 ## Configuration
 
@@ -325,7 +342,8 @@ status: the switch can take the window of a touch event, and that touch then nev
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X, touch through the emulated IQS323: Install via Wi-Fi and Receive over USB end on a long press, a middle tap and a long press reach an app right after it started; no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
 | event log: wrap and bounded size, restart, damaged file, repeats, last lines that fit, write rate limit | `test/test_evlog_ring` | `pio test -e native -f test_evlog_ring` |
-| orientation: landscape, portrait (sides swapped), no image yet, other sizes, the call's slot | `test/test_app_orientation` | `pio test -e native -f test_app_orientation` |
+| orientation: landscape, portrait (sides swapped), no image yet, other sizes, the call's slot; 2.5: the old call's two values from the four positions, the fallback | `test/test_app_orientation` | `pio test -e native -f test_app_orientation` |
+| position from accelerometer samples: sectors, TRMNL's angle, flat, hysteresis, settle time, noise, flat keeps the last, wobble at an edge; touch bar zones and hint boxes in the four positions | `test/test_orient_sense`, `test/test_touchbar_layout` | `pio test -e native -f test_orient_sense -f test_touchbar_layout` |
 | event log on the simulated X: `TAPP EVLOG` lists the app's start across a restart, `CLEAR` | `test/sim/test_evlog.py` | below |
 | `http_request` open failures: out of memory (TLS setup, handshake bignums, certificates, ESP_ERR_NO_MEM) is `APP_ENOMEM`, others `APP_ETIMEDOUT` | `test/test_http_open_error` | `pio test -e native -f test_http_open_error` |
 | no TRMNL sleep while an app or install screen runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |
