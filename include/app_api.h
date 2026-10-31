@@ -23,8 +23,9 @@ extern "C" {
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
 // Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
-#define APP_API_MINOR 5 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files;
-                        // 2.4: ESP-NOW receive, touch hold; 2.5: orientation from the accelerometer
+#define APP_API_MINOR 6 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files;
+                        // 2.4: ESP-NOW receive, touch hold; 2.5: orientation from the accelerometer;
+                        // 2.6: keyboard layout, settings form
 
 // ---- app header ----
 
@@ -124,6 +125,7 @@ typedef enum {
   APP_EVENT_EXIT, // the user asked to leave (long press): save and return within APP_EXIT_GRACE_MS
   APP_EVENT_KEYBOARD, // a keyboard came or went: `key` holds the APP_KBD_* bits connected now (API 2)
   APP_EVENT_ORIENTATION, // API 2.5, only after orientation_follow(true, ..): the X was turned, `key` is the new APP_ORIENT_*
+  APP_EVENT_SETTINGS, // API 2.6: the phone saved the settings form; `key` is how many values changed (read them again)
 } app_event_type_t;
 
 #define APP_EXIT_GRACE_MS 2000
@@ -178,8 +180,10 @@ typedef struct {
   uint8_t zone; // app_touch_zone_t, for TOUCH
   uint8_t gesture; // app_gesture_t, for TOUCH
   // For keys of a USB or Bluetooth keyboard: the HID usage (keyboard page, 0x04 = the key labelled A on a US
-  // layout), 0 otherwise. The firmware maps no layout: Enter, Escape, Backspace, Tab, Delete, the arrows, Home,
-  // End, Page Up/Down and F1..F12 come with their app_key_t, every other key as APP_KEY_HID (API 2)
+  // layout), 0 otherwise. Enter, Escape, Backspace, Tab, Delete, the arrows, Home, End, Page Up/Down and F1..F12 come
+  // with their app_key_t. Since 2.6 a key that types a character on the X's keyboard layout (chosen on the Wi-Fi page)
+  // comes as APP_KEY_CHAR with utf8 (Ctrl, Alt, Meta in `modifiers`, the character unchanged by them); every other key
+  // as APP_KEY_HID. hid_usage is always there for apps that want key positions (API 2)
   uint8_t hid_usage;
 } app_event_t;
 
@@ -288,6 +292,27 @@ typedef struct {
   const char *exts; // comma separated, with the dot, e.g. ".gb,.gbc" (at most 8, letters and digits, any case)
   uint32_t max_bytes; // the largest file, 1 .. 33554432
 } app_webshare_files_t;
+
+// ---- settings form (API 2.6) ----
+
+// One field of the app's settings form (settings_declare): the phone shows it on the Wi-Fi page in the "settings"
+// profile (webshare_start_settings); a saved value is checked against it and written with setting_set under `key`.
+// Values are stored as text: a number as its decimal digits ("-12"), a choice as the choice itself. An empty text or
+// secret (allowed with min 0) removes the key (setting_get then gives APP_ENOENT)
+typedef enum {
+  APP_SETTING_TEXT = 0, // min..max bytes of UTF-8 (max 1..256)
+  APP_SETTING_SECRET = 1, // as text, never shown back on the page (only "set" / "not set") and never logged
+  APP_SETTING_NUMBER = 2, // a whole number in min..max
+  APP_SETTING_CHOICE = 3, // one of `choices`
+} app_setting_kind_t;
+
+typedef struct {
+  const char *key; // setting_get/set key: 1..15 of A-Z a-z 0-9 _
+  const char *label; // shown on the phone, 1..48 bytes, any language
+  const char *choices; // CHOICE: "one|two|three" (up to 16, 256 bytes in all); NULL otherwise
+  int32_t min, max; // TEXT, SECRET: bytes; NUMBER: the value
+  uint32_t kind; // app_setting_kind_t
+} app_setting_decl_t;
 
 // ---- local time (API 2) ----
 
@@ -461,6 +486,20 @@ typedef struct app_api {
   int (*orientation_follow)(bool on, uint32_t settle_ms);
   // Fills *out with where the touch bar is in position `orientation`. 0, or APP_EINVAL (bad position, out NULL)
   int (*touchbar_layout)(int orientation, app_touchbar_t *out);
+
+  // ---- API 2.6 (api->size >= APP_API_SLOT(47)) ----
+
+  // The X's keyboard layout, for the app's help text: "Belgian AZERTY", "French AZERTY", "US QWERTY", "UK QWERTY",
+  // "German QWERTZ". The user picks it on the Wi-Fi page (any profile); keys come mapped by it (app_event_t)
+  const char *(*keyboard_layout_name)(void);
+  // Declares the app's settings form (app_setting_decl_t above; copied, n 0 clears it). 0 or APP_EINVAL (a bad field,
+  // more than 16). Kept until the app ends
+  int (*settings_declare)(const app_setting_decl_t *decls, uint32_t n);
+  // The Wi-Fi page in the "settings" profile: the declared form, the keyboard layout, the touch bar's buttons. The same
+  // login, code and status as webshare_start; APP_EVENT_SETTINGS after each save that changed something. Returns what
+  // webshare_start does, APP_ENOENT when nothing is declared, APP_EBUSY while ESP-NOW holds the radio (espnow_stop
+  // first)
+  int (*webshare_start_settings)(app_webshare_mode_t mode);
 } app_api_t;
 
 #define APP_ORIENT_SETTLE_MS 1000
@@ -493,10 +532,13 @@ APP_API_ASSERT(offsetof(app_api_t, webshare_start_files) == APP_API_SLOT(36), "A
 APP_API_ASSERT(offsetof(app_api_t, espnow_start) == APP_API_SLOT(37), "API 2.4: ESP-NOW after the files profile");
 APP_API_ASSERT(offsetof(app_api_t, touch_hold) == APP_API_SLOT(40), "API 2.4: then the touch hold");
 APP_API_ASSERT(offsetof(app_api_t, device_orientation) == APP_API_SLOT(41), "API 2.5: orientation after the touch hold");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(44), "API 2.5 has 44 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(offsetof(app_api_t, keyboard_layout_name) == APP_API_SLOT(44), "API 2.6: layout after touchbar_layout");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(47), "API 2.6 has 47 calls: a new one raises APP_API_MINOR");
 APP_API_ASSERT(sizeof(app_touchbar_t) == 32, "app_touchbar_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_espnow_pkt_t) == 258, "app_espnow_pkt_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 5, "a new version adds its own size check above");
+APP_API_ASSERT(sizeof(app_setting_decl_t) == 3 * sizeof(void *) + 12 + (sizeof(void *) == 8 ? 4 : 0),
+               "app_setting_decl_t is part of the app ABI");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 6, "a new version adds its own size check above");
 
 #endif // APP_API_H
