@@ -17,7 +17,8 @@
 struct webshare_state_t {
   bool running;
   bool install; // the apps profile
-  bool files; // the files profile (API 2.3); neither: the writer's
+  bool files; // the files profile (API 2.3)
+  bool settings; // the settings profile (API 2.6); none of these: the writer's
   bool watch_alive;
   app_webshare_mode_t mode;
   ws_auth_t auth;
@@ -27,7 +28,7 @@ struct webshare_state_t {
   SemaphoreHandle_t lock; // start/stop and the upload state; handlers run in the async_tcp task
   char network[33], address[40], ip[16], url[32];
 };
-enum { WS_PROFILE_WRITER, WS_PROFILE_INSTALL, WS_PROFILE_FILES };
+enum { WS_PROFILE_WRITER, WS_PROFILE_INSTALL, WS_PROFILE_FILES, WS_PROFILE_SETTINGS };
 extern webshare_state_t S;
 extern ws_files_cfg_t files_cfg; // the files profile's settings, set while the page is down (webshare_files.cpp)
 extern ws_upload_t upload;
@@ -67,6 +68,11 @@ void webshare_handle_touch(AsyncWebServerRequest *r);
 // The files profile (webshare_files.cpp)
 void webshare_files_routes(AsyncWebServer &server);
 const char *webshare_files_page(void);
+
+// The settings profile and the keyboard layout of every profile (webshare_settings.cpp)
+void webshare_settings_routes(AsyncWebServer &server);
+const char *webshare_settings_page(void);
+void webshare_kbd_routes(AsyncWebServer &server); // /kbd.js and /api/kbd, in every profile
 
 // The apps profile (webshare_install.cpp)
 void webshare_install_routes(AsyncWebServer &server);

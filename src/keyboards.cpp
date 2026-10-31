@@ -2,9 +2,11 @@
 #ifdef BOARD_TRMNL_X
 
 #include <app_api.h>
+#include <kbd_layout.h>
 
 #include "app_host.h"
 #include "ble_keyboard.h"
+#include "kbd_layout_x.h"
 #include "keyboards.h"
 
 int usb_keyboard_enable(bool on);
@@ -26,7 +28,9 @@ void keyboards_post(const app_event_t *ev, int n) {
   for (int i = 0; i < n; i++) {
     if (!app_host.events) continue;
     if (ev[i].type != APP_EVENT_KEYBOARD) app_host.got_input = true;
-    xQueueSend(app_host.events, &ev[i], 0);
+    app_event_t e = ev[i];
+    kbd_layout_apply(kbd_layout_x_current(), &e); // the X's layout: a key with a character comes as APP_KEY_CHAR
+    xQueueSend(app_host.events, &e, 0);
   }
 }
 

@@ -79,16 +79,16 @@ static bool field_from(asf_field_t *f, const app_setting_decl_t *d) {
 
 int asf_declare(asf_form_t *form, const app_setting_decl_t *decls, uint32_t n) {
   if (!form || (n && !decls) || n > ASF_FIELDS_MAX) return APP_EINVAL;
-  static asf_form_t next; // one app at a time; kept off the caller's stack (16 x 330 bytes)
-  memset(&next, 0, sizeof(next));
+  asf_field_t one; // every field checked before the form changes (no second form in RAM)
   for (uint32_t i = 0; i < n; i++) {
-    if (!field_from(&next.f[i], &decls[i])) return APP_EINVAL;
+    if (!field_from(&one, &decls[i])) return APP_EINVAL;
     for (uint32_t j = 0; j < i; j++) {
-      if (!strcmp(next.f[j].key, next.f[i].key)) return APP_EINVAL;
+      if (!strcmp(decls[j].key, decls[i].key)) return APP_EINVAL;
     }
   }
-  next.n = (int)n;
-  *form = next;
+  memset(form, 0, sizeof(*form));
+  for (uint32_t i = 0; i < n; i++) field_from(&form->f[i], &decls[i]);
+  form->n = (int)n;
   return 0;
 }
 

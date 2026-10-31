@@ -34,11 +34,13 @@
 #include "evlog.h"
 #include "espnow_app.h"
 #include "evlog_crash.h"
+#include "kbd_layout_x.h"
 #include "keyboards.h"
 #include "orientation_x.h"
 #include "usb_drive.h"
 #include "usb_port_role.h"
 #include "webshare.h"
+#include "app_settings_x.h"
 
 #define APP_POLL_MS       20
 #define APP_KEY_IDLE_MS   50 // after a lone ESC: the Escape key, not the start of a sequence
@@ -299,6 +301,8 @@ void apps_run(const char *path) {
   app_host.panel = xSemaphoreCreateMutex();
   app_entry = (app_entry_t)elf.entry;
   app_key_decoder_init(&keys);
+  kbd_layout_x_current(); // read from NVS here, before a keyboard task needs it
+  app_settings_x_end(); // no form from the app before
   app_serial_init(&serial_in);
   Serial.begin(115200); // the keys of a terminal on the USB serial port
   touchbar_input_begin(app_host.name); // the tap that started it is not the app's
@@ -340,6 +344,7 @@ void apps_run(const char *path) {
   touchbar_input_end();
   orientation_x_end();
   webshare_stop(); // the page never outlives the app
+  app_settings_x_end(); // the settings form goes with the app
   espnow_app_stop(); // nor ESP-NOW: the original MAC back, the radio off (a crash restarts with the eFuse MAC)
   app_host_close_files();
   esp_elf_deinit(&elf);

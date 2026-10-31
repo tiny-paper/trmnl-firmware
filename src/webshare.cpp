@@ -480,14 +480,19 @@ static void add_routes(AsyncWebServer &server) {
     }
     AsyncWebServerResponse *res = r->beginResponse(
         200, "text/html; charset=utf-8",
-        S.install ? webshare_install_page() : S.files ? webshare_files_page() : WEBSHARE_PAGE);
+        S.install    ? webshare_install_page()
+        : S.files    ? webshare_files_page()
+        : S.settings ? webshare_settings_page()
+                     : WEBSHARE_PAGE);
     res->addHeader("Cache-Control", "no-store");
     r->send(res);
   });
   server.on("/api/login", HTTP_POST, handle_login);
-  if (S.install || S.files) {
+  webshare_kbd_routes(server); // the X's keyboard layout, on every profile's page
+  if (S.install || S.files || S.settings) {
     if (S.install) webshare_install_routes(server);
-    else webshare_files_routes(server);
+    else if (S.files) webshare_files_routes(server);
+    else webshare_settings_routes(server);
     server.onNotFound([](AsyncWebServerRequest *r) {
       if (S.mode == APP_WEBSHARE_AP) r->redirect(WS_AP_URL);
       else r->send(404);
@@ -522,6 +527,7 @@ int webshare_start_profile(app_webshare_mode_t requested, int profile) {
   xSemaphoreTake(S.lock, portMAX_DELAY);
   S.install = install;
   S.files = profile == WS_PROFILE_FILES;
+  S.settings = profile == WS_PROFILE_SETTINGS;
   if (install) { // the file system root, the apps folder
     LittleFS.mkdir(APPS_DIR);
     ws_apps_cleanup(&FS_ROOT);
@@ -530,7 +536,7 @@ int webshare_start_profile(app_webshare_mode_t requested, int profile) {
     LittleFS.mkdir(APPS_DATA_DIR);
     LittleFS.mkdir(base_dir);
     if (S.files) ws_files_cleanup(&FS, &files_cfg); // a temporary file a power loss left
-    else ws_store_cleanup(&FS);
+    else if (!S.settings) ws_store_cleanup(&FS);
   }
   memset(&S.auth, 0, sizeof(S.auth));
   ws_auth_init(&S.auth, esp_random());

@@ -18,6 +18,7 @@
 #include <esp_heap_caps.h>
 #include <esp_http_client.h>
 #include <http_open_error.h>
+#include <kbd_layout.h>
 #include <mbedtls/asn1.h>
 #include <mbedtls/bignum.h>
 #include <mbedtls/cipher.h>
@@ -42,6 +43,8 @@
 #include "orientation_x.h"
 
 #include "app_host.h"
+#include "app_settings_x.h"
+#include "kbd_layout_x.h"
 #include "displayed_image.h"
 #include "espnow_app.h"
 #include "ble_keyboard.h"
@@ -423,6 +426,20 @@ static int setting_set(const char *key, const void *buf, size_t len) {
   return rc;
 }
 
+int app_host_setting_get(const char *key, void *buf, size_t len) { return setting_get(key, buf, len); }
+int app_host_setting_set(const char *key, const void *buf, size_t len) { return setting_set(key, buf, len); }
+
+int app_host_setting_remove(const char *key) {
+  if (!key_ok(key)) return APP_EINVAL;
+  char ns[16];
+  settings_namespace(ns, sizeof(ns));
+  Preferences p;
+  if (!p.begin(ns, false)) return APP_EIO;
+  if (p.isKey(key)) p.remove(key);
+  p.end();
+  return 0;
+}
+
 // TRMNL's from its last image; the panel's own frame is landscape (bbep keeps rotation 0 while an app runs)
 static int image_orientation(void) {
   const int w = bbep.width() > bbep.height() ? bbep.width() : bbep.height();
@@ -464,6 +481,16 @@ static int app_keyboard_enable(uint32_t sources) {
   return keyboards_enable(sources);
 }
 
+// ---- API 2.6: keyboard layout, settings form ----
+
+static const char *keyboard_layout_name(void) { return kbd_layout_name(kbd_layout_x_current()); }
+
+static int app_webshare_start_settings(app_webshare_mode_t mode) {
+  if (!app_settings_x_declared()) return APP_ENOENT;
+  if (radio_claim_check(espnow_app_radio_users(), RADIO_WANT_WEBSHARE)) return APP_EBUSY;
+  return webshare_start_settings(mode);
+}
+
 static int touch_hold(uint32_t zones) {
   if (zones & ~(uint32_t)TOUCH_HOLD_ZONES) return APP_EINVAL;
   touchbar_input_set_hold(zones);
@@ -496,6 +523,8 @@ static const app_api_t table = {
     espnow_app_stop, touch_hold,
     device_orientation, orientation_follow,
     touchbar_layout,
+    keyboard_layout_name, app_settings_x_declare,
+    app_webshare_start_settings,
 };
 
 const app_api_t *app_api_table(void) {

@@ -26,6 +26,7 @@ h1{font-size:1.3rem}button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 
 <p id=what></p><input id=up type=file multiple>
 <p class=s>Nothing is ever overwritten: a file that differs from the one on the X is kept next to it as "name (web 1)".</p>
 </div>
+<p id=kbd></p>
 <script>
 const $=id=>document.getElementById(id),H={'X-Writer':'1'};
 let cfg={exts:[],max:0};
@@ -40,7 +41,7 @@ async function api(path,opt){
 function kb(n){return n<1024?n+' B':(n/1024).toFixed(1)+' KB'}
 async function load(){
   const r=await api('/api/files');if(!r.ok){if(r.status!=401)say(r.j.error||'Failed',true);return}
-  show(true);cfg=r.j;$('free').textContent=kb(r.j.free)+' free on the X';
+  show(true);window.kbd&&kbd();cfg=r.j;$('free').textContent=kb(r.j.free)+' free on the X';
   $('up').accept=r.j.exts.join(',');
   $('what').textContent='Add files ('+r.j.exts.join(' ')+', up to '+kb(r.j.max)+' each):';
   const box=$('files');box.textContent='';
@@ -70,4 +71,4 @@ $('up').onchange=async e=>{
     out.push(f.name+': '+(r.ok?(r.j.how=='same'?'already on the X':r.j.how=='both'?'kept both, saved as '+r.j.name:'saved'):(r.j.error||'failed')))}
   say(out.join('\n'));e.target.value='';load()};
 load();
-</script></body></html>)HTML";
+</script><script src=/kbd.js></script></body></html>)HTML";

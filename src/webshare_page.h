@@ -33,6 +33,7 @@ button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 0}
 <p class=s>Add a font (.ttf or .otf):</p><input id=font type=file accept=".ttf,.otf">
 <p class=s>Nothing is ever overwritten: a file that differs from the one on the X is kept next to it as "name (web 1)".</p>
 </div>
+<p id=kbd></p>
 <script>
 const $=id=>document.getElementById(id),H={'X-Writer':'1'};
 function say(t,bad){const m=$('msg');m.textContent=t;m.className=bad?'bad':'';m.hidden=!t}
@@ -61,7 +62,7 @@ function row(parent,path,size,doc){
   parent.appendChild(d)}
 async function load(){
   const r=await api('/api/list');if(!r.ok){if(r.status!=401)say(r.j.error||'Failed',true);return}
-  show(true);$('free').textContent=kb(r.j.free)+' free';
+  show(true);window.kbd&&kbd();$('free').textContent=kb(r.j.free)+' free';
   const dd=$('docs'),ff=$('fonts');dd.textContent='';ff.textContent='';
   r.j.docs.forEach(f=>row(dd,f.p,f.s,true));if(!r.j.docs.length)dd.textContent='No documents.';
   r.j.fonts.forEach(f=>row(ff,f.p,f.s,false))}
@@ -82,4 +83,4 @@ $('up').onchange=async e=>{
 $('font').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;say(await put('settings/fonts/'+f.name,f));e.target.value='';load()};
 load();
-</script></body></html>)HTML";
+</script><script src=/kbd.js></script></body></html>)HTML";

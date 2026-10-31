@@ -32,6 +32,8 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | ESP-NOW (API 2.4) | `espnow_start(mac, channel)`, `espnow_recv(&pkt)` (1, or 0 when none waits; never blocks), `espnow_stop()` (frames dropped): receive only, see "ESP-NOW" below. Check `api->size >= APP_API_SLOT(40)` first |
 | touch hold (API 2.4) | `touch_hold(1 << APP_TOUCH_MIDDLE)`: a middle press released after 600 ms and before the long press (1.5 s, exit as before) comes as `APP_GESTURE_HOLD` instead of a tap; 0 stops it, the app's end too. Check `api->size >= APP_API_SLOT(41)` first |
 | position (API 2.5) | `device_orientation()`, `orientation_follow(on, settle_ms)`, `touchbar_layout(o, &bar)`, `APP_EVENT_ORIENTATION`: the X's position from its accelerometer, see "Touch bar and position" below. Check `api->size >= APP_API_SLOT(44)` first |
+| keyboard layout (API 2.6) | `keyboard_layout_name()`: the X's layout for help text; keys come mapped by it, see "Keyboard layout" below. Check `api->size >= APP_API_SLOT(45)` first |
+| settings form (API 2.6) | `settings_declare(decls, n)`, `webshare_start_settings(mode)`, `APP_EVENT_SETTINGS`: the app's settings typed on the phone, see "Settings profile" below. Check `api->size >= APP_API_SLOT(47)` first |
 
 Errors are negative `APP_E*` values.
 
@@ -51,7 +53,7 @@ Recent device events kept on the X across restarts and deep sleep (`src/evlog.cp
 
 | | |
 |---|---|
-| keys | KEY_DOWN / KEY_UP with `hid_usage` (HID keyboard page) and `modifiers` (`APP_MOD_ALTGR` = right Alt). No layout in the firmware: Enter, Escape, Backspace, Tab, Delete, arrows, Home, End, Page Up/Down, F1..F12 get their `app_key_t`, every other key is `APP_KEY_HID` with an empty `utf8`; the app maps its layout (`lib/trmnl/src/hid_keys.cpp`) |
+| keys | KEY_DOWN / KEY_UP with `hid_usage` (HID keyboard page) and `modifiers` (`APP_MOD_ALTGR` = right Alt). Enter, Escape, Backspace, Tab, Delete, arrows, Home, End, Page Up/Down, F1..F12 get their `app_key_t` (`lib/trmnl/src/hid_keys.cpp`); since 2.6 a key with a character on the X's layout is `APP_KEY_CHAR` with `utf8` (below), every other key `APP_KEY_HID` with an empty `utf8` |
 | removed mid-typing | KEY_UP for every key still held, then `APP_EVENT_KEYBOARD` with the bits still connected |
 | Bluetooth LE | `src/ble_keyboard.cpp` on NimBLE (central only); rules in `lib/trmnl`: `ble_pair.h` (pairing, bond, reconnect), `ble_hogp.h` (security, then HID over GATT), `hid_report_map.h` (report protocol to boot format). Table below |
 
@@ -102,6 +104,31 @@ The radio is on only while an app has `APP_KBD_BLE` enabled; TRMNL's own refresh
 | AES in software | hardware AES copies every PSRAM record through internal DMA bounce buffers (up to 1600 B in and out per call); on the writer's sync that failed (`out of memory: caps 0x8, 1370 bytes`; 0x8 is `MALLOC_CAP_DMA`). `CONFIG_MBEDTLS_HARDWARE_AES` off: at 240 MHz no slower (IDF help). Guard `test/config/test_internal_ram.py`: these settings, the headroom estimate and the event log line |
 | event log `out of memory` | `caps 0x<caps>, <size> bytes failed, int <internal free>/<largest block>` (internal RAM at the failure) |
 | `http_request` out of memory | returns `APP_ENOMEM` (also `resp.status`) when the client or the TLS handshake could not allocate; an app says "not enough memory for the secure connection", not "no network". Other open failures (DNS, refused, certificate, timeout) stay `APP_ETIMEDOUT`; no Wi-Fi is `APP_ENONET`. Rules: `http_open_error.h`, test `test_http_open_error` |
+
+### Keyboard layout (API 2.6)
+
+One setting of the X, not of an app: no app keeps keyboard maps.
+
+| | |
+|---|---|
+| layouts | Belgian AZERTY (default), French AZERTY, US QWERTY, UK QWERTY, German QWERTZ: one table each in `lib/trmnl/src/kbd_layout.cpp` (rows usage, plain, Shift, AltGr; the Belgian rows from trmnl-writer's kbmap, MIT), test `test_kbd_layout` |
+| chosen | on the Wi-Fi page, any profile (a menu at the foot of the page after login, `/api/kbd`, script `/kbd.js`); NVS `kbd_layout` in TRMNL's namespace (`be`, `fr`, `us`, `uk`, `de`); unknown or unset: Belgian. Event log `Keyboard layout: <name>` |
+| keys | `src/keyboards.cpp` maps every USB and Bluetooth key: a character comes as `APP_KEY_CHAR` with `utf8`; Shift the second level, AltGr (without Shift) the third; Ctrl, Alt, Meta stay in `modifiers` and do not change the character (Ctrl+Z on AZERTY is `z` with `APP_MOD_CTRL`). The keypad types its digits (Num Lock taken as on). `hid_usage` stays on every key for apps that want positions (games) |
+| left out | dead keys (^ and the diaeresis on AZERTY, ` and ^ on QWERTZ) type their accent at once, not combined; Caps Lock is not applied (boot reports carry no lock state); Shift+AltGr gives nothing |
+| app | `keyboard_layout_name()`: "Belgian AZERTY", ... for help text |
+
+## Settings profile (API 2.6)
+
+An app's settings typed on the phone (any language, the phone's keyboard): `settings_declare(decls, n)` once, then `webshare_start_settings(mode)` (same login, code, QR link and `webshare_status` as the writer page). Rules `lib/trmnl/src/app_settings_form.cpp` (test `test_app_settings_form`), routes `src/webshare_settings.cpp`, page `src/webshare_settings_page.h`.
+
+| | |
+|---|---|
+| declare | up to 16 `app_setting_decl_t`: `key` (1..15 of A-Z a-z 0-9 _, unique), `label` (1..48 bytes UTF-8), `kind` TEXT, SECRET (bytes `min..max`, max 1..256), NUMBER (`min..max`), CHOICE (`choices` "a\|b\|c", up to 16, 256 bytes). A bad field: `APP_EINVAL`, the old form kept. Copied; gone when the app ends |
+| start | `APP_ENOENT` with nothing declared; `APP_EBUSY` while ESP-NOW holds the radio (as the files profile; a Bluetooth keyboard shares the radio with the page as before) |
+| page | one field per row (text box, password box, number box, menu), Save, the keyboard layout, the touch bar's buttons |
+| save | every sent value checked first (too long or short, broken UTF-8 or control characters, not a whole number, out of range, not one of the choices: "<label>: <why>", nothing written), then `setting_set` per changed key; an empty text removes the key. Then `APP_EVENT_SETTINGS` with `key` = values changed |
+| stored | as text: a number as its digits (`-12`), a choice as itself; read with `setting_get` |
+| secret | never sent back (only "set" / "not set"), never logged (the log says only how many changed); left empty on the page: kept. It cannot be cleared from the page |
 
 ## USB port roles
 
@@ -356,6 +383,8 @@ status: the switch can take the window of a touch event, and that touch then nev
 | Install via Wi-Fi: only .elf, checker refusal, size limit, .bak kept and restored on a failed or crashed first start, token/code needed | `test/test_webshare_apps` | `pio test -e native -f test_webshare_apps` |
 | Wi-Fi page logic: names, code and lock, uploads (full disk, close loses data, pulled connection, power loss, bad names, no overwrite), rename, delete, zip | `test/test_webshare` | `pio test -e native -f test_webshare` |
 | Files profile: folder and extension rules, too big, `../` tricks, full disk, same name, delete limits | `test/test_webshare_files` | `pio test -e native -f test_webshare_files` |
+| keyboard layouts: letters, digit row with and without Shift, AltGr of each layout, keypad, unknown layout, the event keeps its usage | `test/test_kbd_layout` | `pio test -e native -f test_kbd_layout` |
+| settings form: bad declarations, too long, bad number, out of range, unknown choice, secret not shown or echoed | `test/test_app_settings_form` | `pio test -e native -f test_app_settings_form` |
 
 Sim tests: build `pio run -e TRMNL_X`, the simulator (`cargo build --release` in `~/workspace/trmnl-sim`, or
 `$TRMNLSIM_DIR`), then `python3 -m venv .venv && .venv/bin/pip install pytest littlefs-python pillow` and

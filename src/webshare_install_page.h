@@ -25,6 +25,7 @@ h1{font-size:1.3rem}button,input{font:inherit;padding:.4rem .7rem;margin:.15rem 
 started once; if it fails to start the old one comes back. From a computer:<br>
 <code>curl -F file=@app.elf "http://&lt;this address&gt;/apps?code=&lt;code&gt;"</code></p>
 </div>
+<p id=kbd></p>
 <script>
 const $=id=>document.getElementById(id),H={'X-Writer':'1'};
 function say(t,bad){const m=$('msg');m.textContent=t;m.className=bad?'bad':'';m.hidden=!t}
@@ -38,7 +39,7 @@ async function api(path,opt){
 function kb(n){return n<1024?n+' B':(n/1024).toFixed(1)+' KB'}
 async function load(){
   const r=await api('/api/apps');if(!r.ok){if(r.status!=401)say(r.j.error||'Failed',true);return}
-  show(true);const box=$('apps');box.textContent='';
+  show(true);window.kbd&&kbd();const box=$('apps');box.textContent='';
   if(r.j.note)say(r.j.note,true);
   r.j.apps.forEach(a=>{
     const d=document.createElement('div');d.className='row';
@@ -66,4 +67,4 @@ $('up').onchange=async e=>{
     out.push(f.name+': '+(r.ok?'installed':'refused: '+(r.j.error||'failed')))}
   say(out.join('\n'));e.target.value='';load()};
 load();
-</script></body></html>)HTML";
+</script><script src=/kbd.js></script></body></html>)HTML";

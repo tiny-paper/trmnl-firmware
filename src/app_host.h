@@ -36,3 +36,9 @@ void app_host_close_files(void);
 
 // The same as net_up in the table (connects the saved 2.4 GHz network), for the Wi-Fi page
 bool app_host_net_up(void);
+
+// The app's settings (setting_get / setting_set in the table) for the Wi-Fi page's settings profile; remove deletes a
+// key (an empty text or secret)
+int app_host_setting_get(const char *key, void *buf, size_t len);
+int app_host_setting_set(const char *key, const void *buf, size_t len);
+int app_host_setting_remove(const char *key);
