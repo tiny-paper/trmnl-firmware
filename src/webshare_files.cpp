@@ -54,7 +54,11 @@ static void handle_file_delete(AsyncWebServerRequest *r) {
 // The answer of an upload: {"ok":true,"how":"new|same|both","name":"<file name kept>"} or {"error":"<why>"}
 static void handle_file_done(AsyncWebServerRequest *r) {
   up_req_t *q = (up_req_t *)r->_tempObject;
-  if (!q || q->unauth) return send_error(r, 401, "type the code first");
+  if (q && q->unauth) return send_error(r, 401, "type the code first");
+  if (!q) { // no body at all: an empty file (or a request that never logged in)
+    if (!webshare_authorized(r, true)) return send_error(r, 401, "type the code first");
+    return send_error(r, 400, "empty file");
+  }
   if (q->rc != WS_OK || !q->done) return send_why(r, q->rc == WS_OK ? WS_E_SHORT : q->rc);
   JsonDocument d;
   d["ok"] = true;
