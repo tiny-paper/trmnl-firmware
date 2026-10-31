@@ -25,3 +25,6 @@ bool ws_name_ok(const char *name);
 // "documents/<folder>/<title>.<ext>" -> the same with " (web N)" before the extension, N >= 1.
 // False if it does not fit WS_NAME_MAX / WS_PATH_MAX or `path` is not a document or font.
 bool ws_alt_name(const char *path, int n, char *out, size_t out_len);
+
+// The same for a path the caller has already checked (a "files" profile, webshare_files.h): no layout test
+bool ws_alt_name_any(const char *path, int n, char *out, size_t out_len);

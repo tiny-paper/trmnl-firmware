@@ -119,8 +119,8 @@ inline MemFs::MemFs() {
   };
   fs.list = [](void *c, const char *dir, ws_list_cb_t cb, void *cx) -> int {
     MemFs *m = self(c);
-    std::string prefix = std::string(dir) + "/";
-    if (!m->nodes.count(dir)) return -1;
+    std::string prefix = *dir ? std::string(dir) + "/" : std::string(); // "": the base folder itself
+    if (*dir && !m->nodes.count(dir)) return -1;
     int n = 0;
     for (auto &kv : m->nodes) {
       if (kv.first.compare(0, prefix.size(), prefix) != 0) continue;

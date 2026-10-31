@@ -59,14 +59,22 @@ ws_kind_t ws_classify(const char *path) {
 }
 
 bool ws_alt_name(const char *path, int n, char *out, size_t out_len) {
-  if (!out || n < 1 || n > 99 || ws_classify(path) == WS_OTHER) return false;
+  if (ws_classify(path) == WS_OTHER) return false;
+  return ws_alt_name_any(path, n, out, out_len);
+}
+
+bool ws_alt_name_any(const char *path, int n, char *out, size_t out_len) {
+  if (!out || !path || n < 1 || n > 99) return false;
   const char *dot = strrchr(path, '.');
   const char *slash = strrchr(path, '/');
+  if (!dot || dot[1] == '\0' || (slash && dot < slash)) return false; // no extension to put the number before
+  const char *base = slash ? slash + 1 : path;
+  if (dot == base) return false;
   size_t stem = (size_t)(dot - path);
   char suffix[16];
   int sl = snprintf(suffix, sizeof(suffix), " (web %d)", n);
   size_t ext = strlen(dot);
-  size_t file_len = (size_t)(dot - (slash + 1)) + (size_t)sl + ext;
+  size_t file_len = (size_t)(dot - base) + (size_t)sl + ext;
   if (file_len > WS_NAME_MAX || stem + (size_t)sl + ext > WS_PATH_MAX || stem + (size_t)sl + ext + 1 > out_len) {
     return false;
   }

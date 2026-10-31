@@ -40,7 +40,10 @@ static void parent_of(const char *path, char *out, size_t len) {
   out[n] = '\0';
 }
 
-static void tmp_in(const char *dir, char *out, size_t len) { snprintf(out, len, "%s/%s", dir, WS_TMP_NAME); }
+static void tmp_in(const char *dir, char *out, size_t len) {
+  if (dir[0]) snprintf(out, len, "%s/%s", dir, WS_TMP_NAME);
+  else snprintf(out, len, "%s", WS_TMP_NAME); // the app folder itself
+}
 
 static bool mkdirs(const ws_fs_t *fs, const char *dir) {
   char part[WS_PATH_MAX + 1];
@@ -187,7 +190,7 @@ ws_result_t ws_upload_end(ws_upload_t *u, ws_put_t *how, char *final_path) {
     *how = WS_PUT_KEPT_BOTH;
     int n = 1;
     for (; n <= 99; n++) {
-      if (!ws_alt_name(u->path, n, target, sizeof(target))) {
+      if (!ws_alt_name_any(u->path, n, target, sizeof(target))) {
         ws_upload_abort(u);
         return WS_E_KEEP_FAILED;
       }
