@@ -37,7 +37,7 @@ for app in $apps; do
   "$cc" -std=gnu11 -Os -Wall -Wextra -Werror -mlongcalls -I "$here/../include" -I "$here" \
     -nostartfiles -nostdlib -fPIC -shared -e app_main -fdata-sections -ffunction-sections \
     -Wl,--gc-sections -Wl,--undefined=app_info -Wl,--undefined=app_rodata_align -fvisibility=hidden \
-    -Wl,--strip-all -Wl,--strip-debug -Wl,--strip-discarded \
+    -Wl,--strip-all -Wl,--strip-debug \
     "$dir"/*.c $extra -o "$out/$name.elf" -lgcc
   "$strip" --strip-unneeded --remove-section=.comment --remove-section=.got.loc --remove-section=.dynamic \
     --remove-section=.xt.lit --remove-section=.xt.prop --remove-section=.xtensa.info "$out/$name.elf"
