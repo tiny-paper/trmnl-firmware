@@ -7,6 +7,7 @@
 
 #include "accelerometer.h"
 #include "iqs323_task.h"
+#include <orient_sense.h>
 
 // ############################ ACCELEROMETER #############################
 
@@ -467,26 +468,16 @@ int8_t bma530_compute_orientation(struct bma5_dev *dev, uint8_t *orientation_out
         return rslt;
     }
 
-    // Flat-state gate, reusing the same ORIENTATION_1.theta threshold configured
-    // on-chip (bma530_configure_orientation): tan(theta_actual)^2 = (ax^2+ay^2)/az^2,
-    // and theta_raw = 64*tan(theta_threshold)^2, so comparing without division/sqrt:
-    // is_flat  <=>  64*(ax^2+ay^2) < theta_raw*az^2
+    // The flat gate and the mount-corrected angle are orient_sense.h's (the same math, I/O free and tested natively)
     if (is_flat_out != NULL) {
-        int64_t horiz_sq = (int64_t)accel.x * accel.x + (int64_t)accel.y * accel.y;
-        int64_t az_sq = (int64_t)accel.z * accel.z;
-        *is_flat_out = (64 * horiz_sq) < ((int64_t)BMA530_ORIENT_THETA_RAW * az_sq);
+        *is_flat_out = orient_is_flat(accel.x, accel.y, accel.z);
     }
 
-    // phi = atan2(-ay, ax), per BMA530 datasheet eq. 4.5, normalized to [0, 360)
     float phi_deg = atan2f((float)-accel.y, (float)accel.x) * 180.0f / (float)M_PI;
     if (phi_deg < 0) {
         phi_deg += 360.0f;
     }
-
-    float corrected_deg = phi_deg + BMA530_MOUNT_OFFSET_DEG;
-    if (corrected_deg >= 360.0f) {
-        corrected_deg -= 360.0f;
-    }
+    float corrected_deg = orient_corrected_deg(accel.x, accel.y);
 
     if (corrected_deg >= 315.0f || corrected_deg < 45.0f) {
         *orientation_out = LANDSCAPE_LEFT;

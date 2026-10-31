@@ -33,10 +33,13 @@
 #include <radio_share.h>
 #include <touch_hold.h>
 #include <touchbar_input.h>
+#include <touchbar_layout.h>
 #include <stdarg.h>
 #include <sys/time.h>
 #include <trmnl_log.h>
 #include <wifi_network.h>
+
+#include "orientation_x.h"
 
 #include "app_host.h"
 #include "displayed_image.h"
@@ -420,8 +423,28 @@ static int setting_set(const char *key, const void *buf, size_t len) {
   return rc;
 }
 
-static int screen_orientation(void) {
-  return app_orientation(DisplayedImage::width(), DisplayedImage::height(), bbep.width(), bbep.height());
+// TRMNL's from its last image; the panel's own frame is landscape (bbep keeps rotation 0 while an app runs)
+static int image_orientation(void) {
+  const int w = bbep.width() > bbep.height() ? bbep.width() : bbep.height();
+  const int h = bbep.width() > bbep.height() ? bbep.height() : bbep.width();
+  return app_orientation(DisplayedImage::width(), DisplayedImage::height(), w, h);
+}
+
+static int screen_orientation(void) { return app_orientation_screen(orientation_x_steady(), image_orientation()); }
+
+// ---- API 2.5: the accelerometer's position (orientation_x.h) ----
+
+static int device_orientation(void) { return app_orientation_device(orientation_x_steady(), image_orientation()); }
+
+static int orientation_follow(bool on, uint32_t settle_ms) {
+  int rc = orientation_x_follow(on, settle_ms);
+  return rc < 0 ? rc : device_orientation();
+}
+
+static int touchbar_layout(int orientation, app_touchbar_t *out) {
+  const int w = bbep.width() > bbep.height() ? bbep.width() : bbep.height();
+  const int h = bbep.width() > bbep.height() ? bbep.height() : bbep.width();
+  return touchbar_layout_fill(orientation, w, h, out);
 }
 
 // ---- the radio's other users while ESP-NOW runs (espnow_rx.h radio_claim_check) ----
@@ -471,6 +494,8 @@ static const app_api_t table = {
     app_webshare_start_files,
     espnow_app_start, espnow_app_recv,
     espnow_app_stop, touch_hold,
+    device_orientation, orientation_follow,
+    touchbar_layout,
 };
 
 const app_api_t *app_api_table(void) {

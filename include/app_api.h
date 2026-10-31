@@ -23,8 +23,8 @@ extern "C" {
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
 // Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
-#define APP_API_MINOR 4 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files;
-                        // 2.4: ESP-NOW receive, touch hold
+#define APP_API_MINOR 5 // 2.1: event_log_lines; 2.2: screen_orientation; 2.3: webshare_start_files;
+                        // 2.4: ESP-NOW receive, touch hold; 2.5: orientation from the accelerometer
 
 // ---- app header ----
 
@@ -78,6 +78,42 @@ typedef struct {
 #define APP_ORIENT_LANDSCAPE 0
 #define APP_ORIENT_PORTRAIT 1
 
+// API 2.5: the X's four positions from its accelerometer, named by where the touch bar is for the user. 0 and 1 are the
+// two values above. An app that draws in position o maps its (x, y) to the framebuffer with app_orient_to_fb below;
+// its screen is W x H (W, H: screen_width, screen_height) in 0 and 2, H x W in 1 and 3
+#define APP_ORIENT_BAR_BOTTOM 0 // landscape, the panel's own frame
+#define APP_ORIENT_BAR_LEFT 1 // portrait, turned as TRMNL turns a portrait image (APP_ORIENT_PORTRAIT)
+#define APP_ORIENT_BAR_TOP 2 // landscape upside down
+#define APP_ORIENT_BAR_RIGHT 3 // portrait the other way
+
+// An app point (x, y) in position `o` to the framebuffer's (*fx, *fy); W, H: screen_width(), screen_height()
+static inline void app_orient_to_fb(int o, int W, int H, int x, int y, int *fx, int *fy) {
+  switch (o) {
+  case APP_ORIENT_BAR_LEFT: *fx = y; *fy = H - 1 - x; break;
+  case APP_ORIENT_BAR_TOP: *fx = W - 1 - x; *fy = H - 1 - y; break;
+  case APP_ORIENT_BAR_RIGHT: *fx = W - 1 - y; *fy = x; break;
+  default: *fx = x; *fy = y; break;
+  }
+}
+
+// Where the touch bar is on an app's screen in one position (touchbar_layout, API 2.5), in that position's app
+// coordinates: the edge it lies along and its three zones as strips of the screen along that edge, APP_TOUCHBAR_DEPTH
+// deep. zone[APP_TOUCH_LEFT] is the zone the user has on the left (on the top in a portrait position), the same zone
+// orientation_follow's touch events name; draw a zone's hint inside or next to its strip
+#define APP_EDGE_BOTTOM 0
+#define APP_EDGE_LEFT 1
+#define APP_EDGE_TOP 2
+#define APP_EDGE_RIGHT 3
+#define APP_TOUCHBAR_DEPTH 160
+
+typedef struct {
+  int16_t width, height; // the app's screen in this position
+  uint8_t orientation; // APP_ORIENT_*
+  uint8_t edge; // APP_EDGE_*
+  uint16_t reserved;
+  app_rect_t zone[3]; // by app_touch_zone_t
+} app_touchbar_t;
+
 // ---- input ----
 
 typedef enum {
@@ -87,6 +123,7 @@ typedef enum {
   APP_EVENT_TOUCH, // a touch bar gesture
   APP_EVENT_EXIT, // the user asked to leave (long press): save and return within APP_EXIT_GRACE_MS
   APP_EVENT_KEYBOARD, // a keyboard came or went: `key` holds the APP_KBD_* bits connected now (API 2)
+  APP_EVENT_ORIENTATION, // API 2.5, only after orientation_follow(true, ..): the X was turned, `key` is the new APP_ORIENT_*
 } app_event_type_t;
 
 #define APP_EXIT_GRACE_MS 2000
@@ -383,7 +420,8 @@ typedef struct app_api {
 
   // TRMNL's orientation, from its last image (TRMNL keeps no setting on the device: the server sends a portrait screen
   // as an image with the sides swapped): APP_ORIENT_LANDSCAPE, APP_ORIENT_PORTRAIT, or APP_ENOENT when no TRMNL image
-  // was drawn since the last cold start
+  // was drawn since the last cold start. Since 2.5 the accelerometer's once it has a reading: BAR_BOTTOM and BAR_TOP
+  // as APP_ORIENT_LANDSCAPE, BAR_LEFT and BAR_RIGHT as APP_ORIENT_PORTRAIT (device_orientation tells which)
   int (*screen_orientation)(void);
 
   // ---- API 2.3 (api->size >= APP_API_SLOT(37)) ----
@@ -410,7 +448,22 @@ typedef struct app_api {
   // `zones`: 1 << APP_TOUCH_MIDDLE to get APP_GESTURE_HOLD for the middle, 0 to stop (the default: a slow press is a
   // tap). Other bits: APP_EINVAL. The long press (exit) is unchanged
   int (*touch_hold)(uint32_t zones);
+
+  // ---- API 2.5 (api->size >= APP_API_SLOT(44)) ----
+
+  // The X's position from its accelerometer (APP_ORIENT_BAR_*): the last one held steady; lying flat keeps the last.
+  // Without a reading yet (flat since the start, or no sensor): TRMNL's from its last image, else APP_ORIENT_BAR_BOTTOM
+  int (*device_orientation)(void);
+  // on: the app draws in device_orientation's position. Touch zones then come in the user's frame (APP_TOUCH_LEFT is
+  // the zone on the user's left, on the top in a portrait position; the middle stays the middle) and an
+  // APP_EVENT_ORIENTATION comes once a new position held for settle_ms (0: APP_ORIENT_SETTLE_MS). off (the default):
+  // the zones of the panel's own frame, no events. Returns the position now, or APP_EINVAL (settle_ms over 10000)
+  int (*orientation_follow)(bool on, uint32_t settle_ms);
+  // Fills *out with where the touch bar is in position `orientation`. 0, or APP_EINVAL (bad position, out NULL)
+  int (*touchbar_layout)(int orientation, app_touchbar_t *out);
 } app_api_t;
+
+#define APP_ORIENT_SETTLE_MS 1000
 
 #ifdef __cplusplus
 }
@@ -439,9 +492,11 @@ APP_API_ASSERT(offsetof(app_api_t, screen_orientation) == APP_API_SLOT(35), "API
 APP_API_ASSERT(offsetof(app_api_t, webshare_start_files) == APP_API_SLOT(36), "API 2.3: the files profile after orientation");
 APP_API_ASSERT(offsetof(app_api_t, espnow_start) == APP_API_SLOT(37), "API 2.4: ESP-NOW after the files profile");
 APP_API_ASSERT(offsetof(app_api_t, touch_hold) == APP_API_SLOT(40), "API 2.4: then the touch hold");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(41), "API 2.4 has 41 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(offsetof(app_api_t, device_orientation) == APP_API_SLOT(41), "API 2.5: orientation after the touch hold");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(44), "API 2.5 has 44 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(sizeof(app_touchbar_t) == 32, "app_touchbar_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_espnow_pkt_t) == 258, "app_espnow_pkt_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 4, "a new version adds its own size check above");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 5, "a new version adds its own size check above");
 
 #endif // APP_API_H

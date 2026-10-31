@@ -24,6 +24,7 @@
 #include <preferences_persistence.h>
 #include <qrcodegen.h>
 #include <touchbar_input.h>
+#include <touchbar_layout.h>
 #include <trmnl_log.h>
 
 #include <algorithm>
@@ -34,6 +35,7 @@
 #include "espnow_app.h"
 #include "evlog_crash.h"
 #include "keyboards.h"
+#include "orientation_x.h"
 #include "usb_drive.h"
 #include "usb_port_role.h"
 #include "webshare.h"
@@ -107,7 +109,7 @@ static uint32_t last_key_byte;
 
 static void post(const app_event_t &ev) {
   if (!app_host.events) return; // a firmware screen (Install via Wi-Fi): no app to take it
-  app_host.got_input = true;
+  if (ev.type != APP_EVENT_ORIENTATION) app_host.got_input = true; // turning the X proves no working touch bar
   if (xQueueSend(app_host.events, &ev, 0) != pdTRUE) Log_info("Apps: event queue full, event dropped");
 }
 
@@ -115,7 +117,8 @@ static void post_tap(int channel, uint8_t gesture) {
   if (ble_keyboard_tap(channel)) return; // the Bluetooth pairing screen's
   app_event_t ev = {};
   ev.type = APP_EVENT_TOUCH;
-  ev.zone = (uint8_t)channel;
+  // in the user's frame once the app follows the X's position (app_api.h orientation_follow)
+  ev.zone = (uint8_t)(orientation_x_following() ? touchbar_zone_of_channel(orientation_x_steady(), channel) : channel);
   ev.gesture = gesture;
   post(ev);
 }
@@ -243,6 +246,13 @@ static bool app_supervise(PreferencesPersistence &persistence) {
       marked_input = true;
     }
     usb_drive_service();
+    int turned = orientation_x_poll(millis());
+    if (turned >= 0 && orientation_x_following()) {
+      app_event_t ev = {};
+      ev.type = APP_EVENT_ORIENTATION;
+      ev.key = (uint16_t)turned;
+      post(ev);
+    }
     if (!usb_drive_busy()) pump_keys(); // the serial port is off while the drive shows
     if (pump_touch() && !exit_asked) {
       Log_event("Apps: long press - asking %s to exit", app_host.name);
@@ -292,6 +302,7 @@ void apps_run(const char *path) {
   app_serial_init(&serial_in);
   Serial.begin(115200); // the keys of a terminal on the USB serial port
   touchbar_input_begin(app_host.name); // the tap that started it is not the app's
+  orientation_x_begin();
 
   TaskHandle_t task = nullptr;
   if (!app_host.events || !app_host.done || !app_host.panel ||
@@ -327,6 +338,7 @@ void apps_run(const char *path) {
   keyboards_end(); // the USB port back in device mode before anything else
   usb_port_give(usb_port_role()); // whatever still holds the PHY: serial again (usb_port_role.h)
   touchbar_input_end();
+  orientation_x_end();
   webshare_stop(); // the page never outlives the app
   espnow_app_stop(); // nor ESP-NOW: the original MAC back, the radio off (a crash restarts with the eFuse MAC)
   app_host_close_files();

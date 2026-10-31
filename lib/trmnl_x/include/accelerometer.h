@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "bma530_features.h"
+#include <orient_sense.h>
 
 #define BMA530_I2C_ADDRESS  0x18
 
@@ -16,10 +17,10 @@
 
 // Rotation, in degrees, of the BMA530 die relative to the device's physical
 // landscape/portrait edges on the TRMNL X board.
-#define BMA530_MOUNT_OFFSET_DEG 45.0f
+#define BMA530_MOUNT_OFFSET_DEG ORIENT_MOUNT_OFFSET_DEG // one value: orient_sense.h
 
 // ORIENTATION_1.theta raw register value
-#define BMA530_ORIENT_THETA_RAW 0x27
+#define BMA530_ORIENT_THETA_RAW ORIENT_THETA_RAW
 
 void bma530_int1_handler();
 
