@@ -27,6 +27,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | Wi-Fi page (API 2) | `webshare_start(mode)`, `webshare_stop`, `webshare_status`: see below |
 | battery, time (API 2) | `battery_percent(&charging)`: the fuel gauge's percent at the last wake (APP_EIO unreadable), charging now; `local_time(&t)`: the clock in the X's time zone (NVS `app_tz`, a POSIX TZ string). TRMNL's firmware keeps no time zone today: until one is stored the fields are UTC with `zone_known` 0; APP_ENOCLOCK before the clock was set |
 | event log (API 2.1) | `event_log_lines(buf, len, n)`: the last n lines of the "Event log", oldest first; check `api->size >= APP_API_SLOT(35)` first (`APP_API_MINOR`) |
+| orientation (API 2.2) | `screen_orientation()`: `APP_ORIENT_LANDSCAPE` or `APP_ORIENT_PORTRAIT` as TRMNL shows its screens, from its last image (TRMNL keeps no setting on the device: the server sends portrait as an image with the sides swapped); `APP_ENOENT` before the first image since a cold start. The framebuffer stays landscape: a portrait app draws its (x, y) at (y, height - 1 - x). Check `api->size >= APP_API_SLOT(36)` first |
 
 Errors are negative `APP_E*` values.
 
@@ -248,6 +249,7 @@ Code: `lib/trmnl/src/drive_{fat,layout,export,import,session}.cpp` (host tested)
 | toolchain | `pio run -e TRMNL_X` once (installs `toolchain-xtensa-esp-elf`) |
 | build | `apps/build.sh hello` writes `apps/build/hello.elf` (all apps: `apps/build.sh`) |
 | flags | elf_loader's `project_elf`: `-fPIC -shared -nostdlib -e app_main`, stripped; `-Wl,--undefined=app_info` keeps the header |
+| code elsewhere | an app folder's `build.flags`: `-I` folders and more `.c` files, relative to it (the Game Boy app in trmnl-og-gameboy `apps/trmnl-x`) |
 
 An app includes only `app_api.h` (and `apps/common/draw.h` for text and boxes). The loader resolves libc symbols
 (`memcpy`, `strlen`, ...) from its own table; anything else is refused at load ("needs a function the firmware lacks").
@@ -293,6 +295,7 @@ status: the switch can take the window of a touch event, and that touch then nev
 | on the simulated X: menu start, long press, broken apps, stuck app, resume, crash at start, missing file | `test/sim/test_apps.py` (pytest) | below |
 | on the simulated X, touch through the emulated IQS323: Install via Wi-Fi and Receive over USB end on a long press, a middle tap and a long press reach an app right after it started; no resume without input, `TAPP NORESUME` | `test/sim/test_screens.py` | below |
 | event log: wrap and bounded size, restart, damaged file, repeats, last lines that fit, write rate limit | `test/test_evlog_ring` | `pio test -e native -f test_evlog_ring` |
+| orientation: landscape, portrait (sides swapped), no image yet, other sizes, the call's slot | `test/test_app_orientation` | `pio test -e native -f test_app_orientation` |
 | event log on the simulated X: `TAPP EVLOG` lists the app's start across a restart, `CLEAR` | `test/sim/test_evlog.py` | below |
 | `http_request` open failures: out of memory (TLS setup, handshake bignums, certificates, ESP_ERR_NO_MEM) is `APP_ENOMEM`, others `APP_ETIMEDOUT` | `test/test_http_open_error` | `pio test -e native -f test_http_open_error` |
 | no TRMNL sleep while an app or install screen runs | `test/test_app_sleep_gate` | `pio test -e native -f test_app_sleep_gate` |

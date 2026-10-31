@@ -1,3 +1,4 @@
+#include "displayed_image.h"
 #include <PNGdec.h>
 #include <board_config.h>
 #include <color_reduce.h>
@@ -548,6 +549,7 @@ int png_to_epd(const uint8_t *pPNG, int iDataSize, bool bPrevious) {
   png->close();
   if (rc == PNG_SUCCESS) {
     Log_info("Decoding %d x %d PNG", png->getWidth(), png->getHeight());
+    DisplayedImage::size(png->getWidth(), png->getHeight()); // the apps' screen_orientation
     if (png->getWidth() == bbep.height() && png->getHeight() == bbep.width()) {
       Log_info("Rotating canvas to portrait orientation");
     } else if (png->getWidth() > bbep.width() || png->getHeight() > bbep.height()) {

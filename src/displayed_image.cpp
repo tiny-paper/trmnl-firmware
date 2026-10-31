@@ -23,4 +23,12 @@ namespace DisplayedImage {
   bool matches(const char *filename) { return !covered && strcmp(szPrevFile, filename) == 0; }
 
   char *get() { return szPrevFile; }
+
+  RTC_DATA_ATTR static int img_w = 0, img_h = 0; // kept over deep sleep, 0 after a cold start
+  void size(int w, int h) {
+    img_w = w;
+    img_h = h;
+  }
+  int width() { return img_w; }
+  int height() { return img_h; }
 } // namespace DisplayedImage

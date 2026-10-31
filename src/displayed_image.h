@@ -8,4 +8,7 @@ namespace DisplayedImage {
   bool exists();
   bool matches(const char *filename);
   char *get(); // the last image drawn, also while covered
+  void size(int w, int h); // the last image's size as decoded (a portrait screen has the panel's sides swapped)
+  int width();
+  int height();
 } // namespace DisplayedImage

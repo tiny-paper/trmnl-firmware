@@ -23,7 +23,7 @@ extern "C" {
 
 #define APP_API_VERSION 2 // 2: keyboards, USB drive, Wi-Fi page (docs/apps.md "API 2")
 // Calls added to a version without a new one: an app checks api->size >= APP_API_SLOT(n + 1) before call n
-#define APP_API_MINOR 1 // 2.1: event_log_lines
+#define APP_API_MINOR 2 // 2.1: event_log_lines; 2.2: screen_orientation
 
 // ---- app header ----
 
@@ -70,6 +70,12 @@ typedef enum {
 typedef struct {
   int16_t x, y, w, h;
 } app_rect_t;
+
+// screen_orientation (API 2.2): how TRMNL shows its screens, so an app can match it. The framebuffer stays landscape
+// (screen_width > screen_height); a portrait app draws turned: its (x, y) is the framebuffer's (y, height - 1 - x),
+// as TRMNL turns a portrait image
+#define APP_ORIENT_LANDSCAPE 0
+#define APP_ORIENT_PORTRAIT 1
 
 // ---- input ----
 
@@ -347,6 +353,13 @@ typedef struct app_api {
   // in buf ("#<boot> <uptime>s <UTC time or -> <event>[ (xN)]"); fewer when they do not fit. Returns the lines,
   // APP_EINVAL (buf NULL or len 0) or APP_ENOMEM
   int (*event_log_lines)(char *buf, size_t len, uint32_t n);
+
+  // ---- API 2.2 (api->size >= APP_API_SLOT(36)) ----
+
+  // TRMNL's orientation, from its last image (TRMNL keeps no setting on the device: the server sends a portrait screen
+  // as an image with the sides swapped): APP_ORIENT_LANDSCAPE, APP_ORIENT_PORTRAIT, or APP_ENOENT when no TRMNL image
+  // was drawn since the last cold start
+  int (*screen_orientation)(void);
 } app_api_t;
 
 #ifdef __cplusplus
@@ -372,8 +385,9 @@ APP_API_ASSERT(offsetof(app_api_t, usb_drive_start) == APP_API_SLOT(26), "API 2:
 APP_API_ASSERT(offsetof(app_api_t, webshare_start) == APP_API_SLOT(29), "API 2: then the Wi-Fi page");
 APP_API_ASSERT(offsetof(app_api_t, battery_percent) == APP_API_SLOT(32), "API 2: then battery and local time");
 APP_API_ASSERT(offsetof(app_api_t, event_log_lines) == APP_API_SLOT(34), "API 2.1: the event log after API 2");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(35), "API 2.1 has 35 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(offsetof(app_api_t, screen_orientation) == APP_API_SLOT(35), "API 2.2: orientation after the event log");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(36), "API 2.2 has 36 calls: a new one raises APP_API_MINOR");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");
-APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 1, "a new version adds its own size check above");
+APP_API_ASSERT(APP_API_VERSION == 2 && APP_API_MINOR == 2, "a new version adds its own size check above");
 
 #endif // APP_API_H

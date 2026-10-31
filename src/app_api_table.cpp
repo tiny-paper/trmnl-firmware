@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <WifiCaptive.h>
 #include <app_clock.h>
+#include <app_orientation.h>
 #include <app_path.h>
 #include <apps.h>
 #include <battery.h>
@@ -36,6 +37,7 @@
 #include <wifi_network.h>
 
 #include "app_host.h"
+#include "displayed_image.h"
 #include "ble_keyboard.h"
 #include "evlog.h"
 #include "keyboards.h"
@@ -411,6 +413,10 @@ static int setting_set(const char *key, const void *buf, size_t len) {
   return rc;
 }
 
+static int screen_orientation(void) {
+  return app_orientation(DisplayedImage::width(), DisplayedImage::height(), bbep.width(), bbep.height());
+}
+
 static const app_api_t table = {
     APP_API_VERSION, sizeof(app_api_t),
     screen_width,    screen_height,
@@ -431,7 +437,7 @@ static const app_api_t table = {
     webshare_start,  webshare_stop,
     webshare_status,
     battery_percent, local_time,
-    evlog_tail,
+    evlog_tail,      screen_orientation,
 };
 
 const app_api_t *app_api_table(void) {
