@@ -131,6 +131,10 @@ int kbd_utf8(uint32_t cp, char out[5]) {
   return 3;
 }
 
+bool kbd_layout_apply_for_app(bool app_wants_chars, int layout, app_event_t *ev) {
+  return app_wants_chars && kbd_layout_apply(layout, ev);
+}
+
 bool kbd_layout_apply(int layout, app_event_t *ev) {
   if (!ev || (ev->type != APP_EVENT_KEY_DOWN && ev->type != APP_EVENT_KEY_UP) || ev->key != APP_KEY_HID) return false;
   uint32_t cp = kbd_layout_char(layout, ev->hid_usage, ev->modifiers);

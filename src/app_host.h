@@ -21,6 +21,7 @@ typedef struct {
   SemaphoreHandle_t panel; // the panel driver and its IO expander: an app's refresh, the USB port's charger reads
   volatile bool screen_held; // the firmware's Bluetooth pairing screen is up: the app's refreshes wait
   volatile bool got_input; // a touch, key or keyboard event reached the app (app_resume_input)
+  volatile bool key_chars; // keyboard_chars(1): keys with a character come mapped by the X's layout (API 2.6)
 } app_host_t;
 
 extern app_host_t app_host;

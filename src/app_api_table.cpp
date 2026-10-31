@@ -485,6 +485,11 @@ static int app_keyboard_enable(uint32_t sources) {
 
 static const char *keyboard_layout_name(void) { return kbd_layout_name(kbd_layout_x_current()); }
 
+static int keyboard_chars(int on) {
+  app_host.key_chars = on != 0;
+  return 0;
+}
+
 static int app_webshare_start_settings(app_webshare_mode_t mode) {
   if (!app_settings_x_declared()) return APP_ENOENT;
   if (radio_claim_check(espnow_app_radio_users(), RADIO_WANT_WEBSHARE)) return APP_EBUSY;
@@ -524,7 +529,7 @@ static const app_api_t table = {
     device_orientation, orientation_follow,
     touchbar_layout,
     keyboard_layout_name, app_settings_x_declare,
-    app_webshare_start_settings,
+    app_webshare_start_settings, keyboard_chars,
 };
 
 const app_api_t *app_api_table(void) {

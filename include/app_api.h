@@ -490,7 +490,7 @@ typedef struct app_api {
   // ---- API 2.6 (api->size >= APP_API_SLOT(47)) ----
 
   // The X's keyboard layout, for the app's help text: "Belgian AZERTY", "French AZERTY", "US QWERTY", "UK QWERTY",
-  // "German QWERTZ". The user picks it on the Wi-Fi page (any profile); keys come mapped by it (app_event_t)
+  // "German QWERTZ". The user picks it on the Wi-Fi page (any profile); keys come mapped by it after keyboard_chars(1)
   const char *(*keyboard_layout_name)(void);
   // Declares the app's settings form (app_setting_decl_t above; copied, n 0 clears it). 0 or APP_EINVAL (a bad field,
   // more than 16). Kept until the app ends
@@ -500,6 +500,9 @@ typedef struct app_api {
   // webshare_start does, APP_ENOENT when nothing is declared, APP_EBUSY while ESP-NOW holds the radio (espnow_stop
   // first)
   int (*webshare_start_settings)(app_webshare_mode_t mode);
+  // 1: a USB or Bluetooth key with a character on the X's layout comes as APP_KEY_CHAR with utf8 (hid_usage kept);
+  // 0 (the default at every start): APP_KEY_HID as in API 2.0, for an app with its own layouts. Check SLOT(48) first
+  int (*keyboard_chars)(int on);
 } app_api_t;
 
 #define APP_ORIENT_SETTLE_MS 1000
@@ -533,7 +536,7 @@ APP_API_ASSERT(offsetof(app_api_t, espnow_start) == APP_API_SLOT(37), "API 2.4: 
 APP_API_ASSERT(offsetof(app_api_t, touch_hold) == APP_API_SLOT(40), "API 2.4: then the touch hold");
 APP_API_ASSERT(offsetof(app_api_t, device_orientation) == APP_API_SLOT(41), "API 2.5: orientation after the touch hold");
 APP_API_ASSERT(offsetof(app_api_t, keyboard_layout_name) == APP_API_SLOT(44), "API 2.6: layout after touchbar_layout");
-APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(47), "API 2.6 has 47 calls: a new one raises APP_API_MINOR");
+APP_API_ASSERT(sizeof(app_api_t) == APP_API_SLOT(48), "API 2.6 has 48 calls: a new one raises APP_API_MINOR");
 APP_API_ASSERT(sizeof(app_touchbar_t) == 32, "app_touchbar_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_espnow_pkt_t) == 258, "app_espnow_pkt_t is part of the app ABI");
 APP_API_ASSERT(sizeof(app_local_time_t) == 16, "app_local_time_t is part of the app ABI");

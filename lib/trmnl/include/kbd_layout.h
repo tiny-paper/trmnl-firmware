@@ -42,3 +42,6 @@ int kbd_utf8(uint32_t cp, char out[5]);
 // A KEY_DOWN or KEY_UP from a keyboard (key APP_KEY_HID): a key with a character on `layout` becomes APP_KEY_CHAR with
 // utf8 filled. Other events and keys are left as they are. True when it changed the event
 bool kbd_layout_apply(int layout, app_event_t *ev);
+// kbd_layout_apply only for an app that asked (keyboard_chars, API 2.6): an app that maps HID usages itself (the writer
+// with its own layout setting) gets APP_KEY_HID as before, or it would map a mapped character a second time
+bool kbd_layout_apply_for_app(bool app_wants_chars, int layout, app_event_t *ev);

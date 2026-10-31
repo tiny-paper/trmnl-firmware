@@ -29,7 +29,7 @@ void keyboards_post(const app_event_t *ev, int n) {
     if (!app_host.events) continue;
     if (ev[i].type != APP_EVENT_KEYBOARD) app_host.got_input = true;
     app_event_t e = ev[i];
-    kbd_layout_apply(kbd_layout_x_current(), &e); // the X's layout: a key with a character comes as APP_KEY_CHAR
+    kbd_layout_apply_for_app(app_host.key_chars, kbd_layout_x_current(), &e); // asked: APP_KEY_CHAR by the layout
     xQueueSend(app_host.events, &e, 0);
   }
 }

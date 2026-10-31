@@ -32,7 +32,7 @@ The firmware calls `int app_main(const app_api_t *api)`. Return 0 when done, any
 | ESP-NOW (API 2.4) | `espnow_start(mac, channel)`, `espnow_recv(&pkt)` (1, or 0 when none waits; never blocks), `espnow_stop()` (frames dropped): receive only, see "ESP-NOW" below. Check `api->size >= APP_API_SLOT(40)` first |
 | touch hold (API 2.4) | `touch_hold(1 << APP_TOUCH_MIDDLE)`: a middle press released after 600 ms and before the long press (1.5 s, exit as before) comes as `APP_GESTURE_HOLD` instead of a tap; 0 stops it, the app's end too. Check `api->size >= APP_API_SLOT(41)` first |
 | position (API 2.5) | `device_orientation()`, `orientation_follow(on, settle_ms)`, `touchbar_layout(o, &bar)`, `APP_EVENT_ORIENTATION`: the X's position from its accelerometer, see "Touch bar and position" below. Check `api->size >= APP_API_SLOT(44)` first |
-| keyboard layout (API 2.6) | `keyboard_layout_name()`: the X's layout for help text; keys come mapped by it, see "Keyboard layout" below. Check `api->size >= APP_API_SLOT(45)` first |
+| keyboard layout (API 2.6) | `keyboard_layout_name()`: the X's layout for help text; keys come mapped by it after `keyboard_chars(1)` (default off: APP_KEY_HID as before, for apps with their own layouts like the writer; check `APP_API_SLOT(48)`), see "Keyboard layout" below. Check `api->size >= APP_API_SLOT(45)` first |
 | settings form (API 2.6) | `settings_declare(decls, n)`, `webshare_start_settings(mode)`, `APP_EVENT_SETTINGS`: the app's settings typed on the phone, see "Settings profile" below. Check `api->size >= APP_API_SLOT(47)` first |
 
 Errors are negative `APP_E*` values.
@@ -113,7 +113,7 @@ One setting of the X, not of an app: no app keeps keyboard maps.
 |---|---|
 | layouts | Belgian AZERTY (default), French AZERTY, US QWERTY, UK QWERTY, German QWERTZ: one table each in `lib/trmnl/src/kbd_layout.cpp` (rows usage, plain, Shift, AltGr; the Belgian rows from trmnl-writer's kbmap, MIT), test `test_kbd_layout` |
 | chosen | on the Wi-Fi page, any profile (a menu at the foot of the page after login, `/api/kbd`, script `/kbd.js`); NVS `kbd_layout` in TRMNL's namespace (`be`, `fr`, `us`, `uk`, `de`); unknown or unset: Belgian. Event log `Keyboard layout: <name>` |
-| keys | `src/keyboards.cpp` maps every USB and Bluetooth key: a character comes as `APP_KEY_CHAR` with `utf8`; Shift the second level, AltGr (without Shift) the third; Ctrl, Alt, Meta stay in `modifiers` and do not change the character (Ctrl+Z on AZERTY is `z` with `APP_MOD_CTRL`). The keypad types its digits (Num Lock taken as on). `hid_usage` stays on every key for apps that want positions (games) |
+| keys | only for an app that called `keyboard_chars(1)` (API 2.6, slot 48; default off at every start, so an app with its own layouts, the writer, still gets `APP_KEY_HID` and never maps a mapped character again): `src/keyboards.cpp` maps every USB and Bluetooth key: a character comes as `APP_KEY_CHAR` with `utf8`; Shift the second level, AltGr (without Shift) the third; Ctrl, Alt, Meta stay in `modifiers` and do not change the character (Ctrl+Z on AZERTY is `z` with `APP_MOD_CTRL`). The keypad types its digits (Num Lock taken as on). `hid_usage` stays on every key for apps that want positions (games) |
 | left out | dead keys (^ and the diaeresis on AZERTY, ` and ^ on QWERTZ) type their accent at once, not combined; Caps Lock is not applied (boot reports carry no lock state); Shift+AltGr gives nothing |
 | app | `keyboard_layout_name()`: "Belgian AZERTY", ... for help text |
 

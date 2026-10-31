@@ -302,6 +302,7 @@ void apps_run(const char *path) {
   app_entry = (app_entry_t)elf.entry;
   app_key_decoder_init(&keys);
   kbd_layout_x_current(); // read from NVS here, before a keyboard task needs it
+  app_host.key_chars = false; // HID usages until the app asks for characters (keyboard_chars)
   app_settings_x_end(); // no form from the app before
   app_serial_init(&serial_in);
   Serial.begin(115200); // the keys of a terminal on the USB serial port

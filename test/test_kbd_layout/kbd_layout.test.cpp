@@ -112,6 +112,21 @@ void test_codes_and_names() {
   TEST_ASSERT_EQUAL_STRING("German QWERTZ", kbd_layout_name(KBD_LAYOUT_DE));
 }
 
+// An app that did not ask (the writer maps HID usages with its own layout setting) gets the key as before: mapping it
+// here too would type q for a on AZERTY (its kbmap_from_us_char maps a character again)
+void test_apply_only_for_an_app_that_asked() {
+  app_event_t ev = {};
+  ev.type = APP_EVENT_KEY_DOWN;
+  ev.key = APP_KEY_HID;
+  ev.hid_usage = 0x14; // a on Belgian AZERTY
+  TEST_ASSERT_FALSE(kbd_layout_apply_for_app(false, KBD_LAYOUT_BE, &ev));
+  TEST_ASSERT_EQUAL(APP_KEY_HID, ev.key);
+  TEST_ASSERT_EQUAL_HEX8(0x14, ev.hid_usage);
+  TEST_ASSERT_TRUE(kbd_layout_apply_for_app(true, KBD_LAYOUT_BE, &ev));
+  TEST_ASSERT_EQUAL(APP_KEY_CHAR, ev.key);
+  TEST_ASSERT_EQUAL_STRING("a", ev.utf8);
+}
+
 void test_apply_fills_utf8_and_keeps_the_usage() {
   app_event_t ev = {};
   ev.type = APP_EVENT_KEY_DOWN;
@@ -165,5 +180,6 @@ int main(int, char **) {
   RUN_TEST(test_keypad_space_and_unknown);
   RUN_TEST(test_codes_and_names);
   RUN_TEST(test_apply_fills_utf8_and_keeps_the_usage);
+  RUN_TEST(test_apply_only_for_an_app_that_asked);
   return UNITY_END();
 }
